@@ -1,16 +1,20 @@
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, onMounted, watch, nextTick, defineProps } from 'vue'
 import { useRoute } from 'vue-router'
+
+// 2 props
+const props = defineProps({ open: { type: Boolean, default: false } })
 
 const route = useRoute()
 
 const mainNavItems = [
   { label: 'Dashboard', path: '/dashboard', icon: 'dashboard' },
-  { label: 'Activity', path: '/dashboard/activity', icon: 'activity' },
+  { label: 'Activity & Performance', path: '/dashboard/activity', icon: 'activity' },
   { label: 'Trade History', path: '/dashboard/trade-history', icon: 'history' },
-  { label: 'Performance', path: '/dashboard/performance', icon: 'performance' },
-  { label: 'Leaderboards', path: '/dashboard/leaderboards', icon: 'leaderboards' },
-  { label: 'Profile', path: '/dashboard/profile', icon: 'profile' },
+  { label: 'Leaderboards', path: '/leaderboards', icon: 'leaderboards' },
+  { label: 'Profile', path: '/profile', icon: 'profile' },
+  // prefer canonical /profile route so active matching works when user is at /profile
+  // (keeps other dashboard links under /dashboard/*)
 ]
 
 const accountNavItems = [{ label: 'Settings', path: '/dashboard/settings', icon: 'settings' }]
@@ -96,7 +100,13 @@ const ICONS = {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ 'sidebar--open': props.open }">
+    <div
+      class="sidebar__overlay"
+      v-show="props.open"
+      @click="$emit('close-sidebar')"
+      aria-hidden="true"
+    ></div>
     <div class="sidebar__brand">
       <div class="sidebar__logoMark" aria-hidden="true">t</div>
       <span class="sidebar__brandText">trolio</span>
@@ -169,7 +179,7 @@ const ICONS = {
 <style scoped>
 /* World-class base: calm, light, high clarity */
 .sidebar {
-  width: var(--sidebar-width, 14rem); /* reduced from 16.5rem */
+  width: var(--sidebar-width, 15rem);
   position: fixed;
   top: 0;
   left: 0;
@@ -188,6 +198,11 @@ const ICONS = {
   display: flex;
   flex-direction: column;
   z-index: 50; /* sidebar overlays header */
+}
+
+/* Overlay shown on small screens when sidebar is open */
+.sidebar__overlay {
+  display: none;
 }
 
 /* Brand */
@@ -228,8 +243,8 @@ const ICONS = {
 .sidebar__link {
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  padding: 0.7rem 0.75rem;
+  gap: 0.7rem;
+  padding: 0.6rem 0.65rem;
 
   text-decoration: none;
   color: var(--link-color, #6f7d91);
@@ -264,22 +279,23 @@ const ICONS = {
 }
 
 .sidebar__icon {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.1rem;
+  height: 1.1rem;
   display: grid;
   place-items: center;
   color: currentColor;
 }
 
 .sidebar__svg {
-  width: 1.15rem;
-  height: 1.15rem;
+  width: 1rem;
+  height: 1rem;
 }
 
 .sidebar__label {
-  font-size: 0.92rem;
+  font-size: 0.86rem;
   font-weight: 500;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .sidebar__indicator {
@@ -323,5 +339,26 @@ const ICONS = {
     opacity 160ms ease;
   pointer-events: none;
   z-index: 0;
+}
+
+/* Responsive behaviour: hide sidebar by default on small screens and slide in when open */
+@media (max-width: 900px) {
+  .sidebar {
+    transform: translateX(-110%);
+    transition: transform 220ms cubic-bezier(0.2, 0.9, 0.2, 1);
+  }
+
+  .sidebar.sidebar--open {
+    transform: translateX(0);
+    box-shadow: 0 24px 60px rgba(16, 24, 40, 0.24);
+  }
+
+  .sidebar__overlay {
+    display: block;
+    position: fixed;
+    inset: 0 0 0 0;
+    background: rgba(11, 16, 26, 0.35);
+    z-index: 45;
+  }
 }
 </style>

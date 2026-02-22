@@ -1,15 +1,51 @@
 <script setup>
-const pageTitle = 'Dashboard'
+// imports
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+
+// 2 props
+const props = defineProps({
+  onToggleSidebar: Function,
+  isSidebarOpen: { type: Object, required: false },
+})
+
+// router
+const route = useRoute()
+
+// state
 const userName = 'Alex Dunia'
+
+// computed
+const pageTitle = computed(() => {
+  const t = route.meta && route.meta.title
+  if (t) return t
+  if (route.name) {
+    // fall back to formatted route name
+    return String(route.name)
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+  return ''
+})
+
+const pageSubtitle = computed(() => (route.meta && route.meta.subtitle) || '')
 </script>
 <template>
   <header class="app-header">
     <div class="app-header__inner app-inner">
       <div class="app-header__left">
+        <button
+          class="hamburger"
+          type="button"
+          @click="props.onToggleSidebar"
+          aria-label="Toggle sidebar"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M3 12h18M3 6h18M3 18h18" />
+          </svg>
+        </button>
         <h2 class="app-header__title">{{ pageTitle }}</h2>
-        <p class="app-header__subtitle">
-          Here you can add, remove, and edit properties on your profile
-        </p>
+        <p class="app-header__subtitle" v-if="pageSubtitle">{{ pageSubtitle }}</p>
       </div>
 
       <div class="app-header__right">
@@ -133,6 +169,18 @@ const userName = 'Alex Dunia'
   color: rgba(15, 23, 42, 0.55);
 }
 
+.hamburger {
+  display: none;
+  margin-right: 0.6rem;
+  border: none;
+  background: transparent;
+  padding: 0.25rem;
+}
+
+.hamburger svg {
+  stroke: rgba(15, 23, 42, 0.8);
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .app-header__inner {
@@ -141,6 +189,9 @@ const userName = 'Alex Dunia'
 
   .app-header__subtitle {
     display: none;
+  }
+  .hamburger {
+    display: inline-flex;
   }
 }
 </style>

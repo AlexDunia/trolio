@@ -1,0 +1,195 @@
+/* Global motion tokens and micro-animations (mobile-first, respects reduced-motion) */
+:root {
+  --motion-easing: cubic-bezier(0.2, 0.9, 0.2, 1);
+  --motion-fast: 120ms;
+  --motion-medium: 220ms;
+  --motion-slow: 360ms;
+
+  --shadow-1: 0 6px 18px rgba(16, 24, 40, 0.06);
+  --shadow-2: 0 12px 36px rgba(16, 24, 40, 0.08);
+  --shadow-3: 0 24px 60px rgba(16, 24, 40, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-medium: 0ms;
+    --motion-fast: 0ms;
+    --motion-slow: 0ms;
+  }
+
+  * {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
+  }
+}
+
+/* Keyframes */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes subtlePulse {
+  0% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Generic card animation - used for main cards */
+.card,
+.page-card,
+.leaderboards__card {
+  will-change: transform, opacity;
+  animation: popIn var(--motion-medium) var(--motion-easing) both;
+  transition:
+    box-shadow var(--motion-medium) var(--motion-easing),
+    transform var(--motion-medium) var(--motion-easing);
+}
+
+/* subtle hover lift for interactive surfaces */
+.card:hover,
+.page-card:hover,
+.btn:hover,
+.sidebar__link:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-1);
+}
+
+/* Buttons micro-interaction */
+.btn {
+  transition:
+    transform var(--motion-fast) var(--motion-easing),
+    box-shadow var(--motion-fast) var(--motion-easing),
+    background-color var(--motion-fast) var(--motion-easing);
+}
+.btn:active {
+  transform: translateY(0);
+}
+
+/* links and nav items */
+.sidebar__link,
+.sidebar__link--active {
+  transition:
+    background var(--motion-fast) var(--motion-easing),
+    color var(--motion-fast) var(--motion-easing),
+    transform var(--motion-fast) var(--motion-easing);
+}
+
+/* indicator movement smoothing */
+.sidebar__indicator {
+  transition:
+    top var(--motion-medium) var(--motion-easing),
+    height var(--motion-medium) var(--motion-easing),
+    opacity var(--motion-fast) linear;
+}
+
+/* Tiny pop for avatars */
+.avatar {
+  transition:
+    transform var(--motion-fast) var(--motion-easing),
+    box-shadow var(--motion-fast) var(--motion-easing);
+}
+.avatar:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-1);
+}
+
+/* subtle pulse for primary action occasionally
+   Note: don't autoplay; only used with utility class when desired */
+.u-pulse {
+  animation: subtlePulse 2000ms ease-in-out infinite;
+}
+
+/* router-view entry animation helper */
+.view-enter {
+  animation: fadeInUp var(--motion-medium) var(--motion-easing) both;
+}
+
+/* utility for reduced shadow depth on small elements */
+.shadow-soft {
+  box-shadow: var(--shadow-1);
+}
+.shadow-medium {
+  box-shadow: var(--shadow-2);
+}
+.shadow-deep {
+  box-shadow: var(--shadow-3);
+}
+
+/* Subtle skeleton loaders (global utilities) */
+:root {
+  --skeleton-bg: rgba(15, 23, 42, 0.04);
+  --skeleton-highlight: rgba(255, 255, 255, 0.5);
+  --skeleton-duration: 2200ms; /* few seconds subtle */
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    transform: translateX(-30%);
+  }
+  100% {
+    transform: translateX(130%);
+  }
+}
+
+.skeleton {
+  position: relative;
+  background: var(--skeleton-bg);
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--skeleton-highlight), transparent);
+  transform: translateX(-30%);
+  opacity: 0.6;
+  animation: skeletonShimmer var(--skeleton-duration) var(--motion-easing) infinite;
+}
+
+.skeleton-line {
+  display: inline-block;
+  height: 0.9rem;
+  border-radius: 4px;
+}
+.skeleton-circle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+    opacity: 0.24;
+  }
+}

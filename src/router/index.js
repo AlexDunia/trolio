@@ -9,6 +9,37 @@ const routes = [
     name: 'landing',
     component: LandingPage,
   },
+  // Top-level profile route uses the DashboardLayout so sidebar/header remain consistent
+  {
+    path: '/profile',
+    component: DashboardLayout,
+    children: [
+      {
+        path: '',
+        name: 'profile',
+        component: () => import('@/pages/ProfileOverview.vue'),
+        meta: {
+          title: 'Profile',
+          subtitle: 'Here you can add, remove, and edit properties on your profile',
+        },
+      },
+    ],
+  },
+  {
+    path: '/leaderboards',
+    component: DashboardLayout,
+    children: [
+      {
+        path: '',
+        name: 'leaderboards',
+        component: () => import('@/pages/LeaderboardsPage.vue'),
+        meta: {
+          title: 'Leaderboards',
+          subtitle: 'Here you can add, remove, and edit properties on your profile',
+        },
+      },
+    ],
+  },
   {
     path: '/dashboard',
     component: DashboardLayout,
@@ -17,6 +48,7 @@ const routes = [
         path: '',
         name: 'dashboard',
         component: DashboardPage,
+        meta: { title: 'Dashboard' },
       },
       // generic child routes for sidebar items
       {
@@ -45,15 +77,15 @@ const routes = [
       },
       {
         path: 'leaderboards',
-        name: 'leaderboards',
-        component: () => import('@/pages/LeaderboardsPage.vue'),
-        meta: { title: 'Leaderboards' },
+        // redirect dashboard-scoped path to canonical top-level route
+        redirect: '/leaderboards',
       },
+      // removed dashboard-scoped leaderboards route — top-level /leaderboards added above
+      // sidebar links expect /dashboard/profile — redirect to canonical /profile
       {
         path: 'profile',
-        name: 'profile',
-        component: () => import('@/pages/ProfilePage.vue'),
-        meta: { title: 'Profile' },
+        // keep unnamed to avoid duplicate route name with /profile
+        redirect: '/profile',
       },
       {
         path: 'settings',
