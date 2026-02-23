@@ -45,9 +45,9 @@ const summaryMetrics = [
 
     <!-- Tabs Section -->
     <BaseTabs :tabs="tabs" v-model="activeTab">
-      <template #default="{ activeTab: tab }">
+      <!-- <template #default="{ activeTab: tab }">
         <p class="tab-content-placeholder">Viewing {{ tab }} data</p>
-      </template>
+      </template> -->
     </BaseTabs>
 
     <!-- KPI Cards Row -->

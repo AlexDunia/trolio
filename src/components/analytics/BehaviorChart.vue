@@ -1,15 +1,16 @@
 <script setup>
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 /**
- * BehaviorChart.vue (single-file, no heavy chart libs)
- * - White + blue look (Trolio style)
- * - Smooth line + soft area fill (Time on chart)
+ * BehaviorChart.vue (no heavy chart libs)
+ * - Line + soft area fill (Time on chart)
  * - Light bars (Trades executed)
- * - Hover: vertical guide + active dot + tooltip (dark card like your reference)
- * - Tooltip shows: time spent, trades executed, trades closed, avg hold, top strategy
+ * - Hover: vertical guide + active dot + tooltip (dark floating card)
  *
- * Clean code, deterministic mock data (replace with API later)
+ * Fixes:
+ * - Tooltip stays ABOVE points (no flip-below), and can float into header space
+ * - Tooltip no longer gets clipped/compressed for Thu–Sun
+ * - Hover is optimized using requestAnimationFrame + cached x positions
  */
 
 const props = defineProps({
@@ -17,7 +18,7 @@ const props = defineProps({
    * Optional external data. If empty, component uses mockData.
    * Expected shape:
    * [
-   *  { dayLabel: 'Mon', date: '2026-02-16', hours: 4.2, tradesExecuted: 2, tradesClosed: 1, avgHoldDays: 1.3, topStrategy: 'FVG', notes?: string }
+   *  { dayLabel: 'Mon', date: '2026-02-16', hours: 4.2, tradesExecuted: 2, tradesClosed: 1, avgHoldDays: 1.3, topStrategy: 'FVG' }
    * ]
    */
   data: {
@@ -123,12 +124,14 @@ const maxHours = computed(() => Math.max(8, ...points.value.map((p) => p.hours))
 const maxTrades = computed(() => Math.max(4, ...points.value.map((p) => p.tradesExecuted)))
 
 const xForIndex = (i) => P.left + (innerW * i) / Math.max(1, points.value.length - 1)
+
 const yForHours = (hours) => {
-  const t = hours / maxHours.value
+  const t = maxHours.value ? hours / maxHours.value : 0
   return P.top + (1 - t) * innerH
 }
+
 const barHeightForTrades = (count) => {
-  const t = count / maxTrades.value
+  const t = maxTrades.value ? count / maxTrades.value : 0
   return Math.max(4, t * (innerH * 0.55))
 }
 
@@ -136,14 +139,13 @@ const barHeightForTrades = (count) => {
 const linePath = computed(() => {
   const pts = points.value
   if (!pts.length) return ''
-  const d = pts
+  return pts
     .map((p, i) => {
       const x = xForIndex(i)
       const y = yForHours(p.hours)
       return `${i === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
     })
     .join(' ')
-  return d
 })
 
 const areaPath = computed(() => {
@@ -152,13 +154,15 @@ const areaPath = computed(() => {
   const startX = xForIndex(0)
   const endX = xForIndex(pts.length - 1)
   const baseY = P.top + innerH
-  return `${linePath.value} L ${endX.toFixed(2)} ${baseY.toFixed(2)} L ${startX.toFixed(
+  return `${linePath.value} L ${endX.toFixed(2)} ${baseY.toFixed(2)} L ${startX.toFixed(2)} ${baseY.toFixed(
     2,
-  )} ${baseY.toFixed(2)} Z`
+  )} Z`
 })
 
 /** Hover + tooltip */
+const cardRef = ref(null)
 const containerRef = ref(null)
+
 const hoverIndex = ref(-1)
 const tooltip = ref({
   visible: false,
@@ -166,10 +170,14 @@ const tooltip = ref({
   y: 0,
 })
 
+const rafId = ref(0)
+const lastMouse = ref({ x: 0, y: 0 })
+const cachedXs = ref([])
+const lastChartWidth = ref(0)
+
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
 
 const formatDateHuman = (iso) => {
-  // e.g. "Thursday, 20 Feb"
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' })
@@ -188,6 +196,71 @@ const hoveredPoint = computed(() => {
   return points.value[hoverIndex.value] || null
 })
 
+const getNearestIndex = (mx) => {
+  let nearest = 0
+  let best = Infinity
+  for (let i = 0; i < cachedXs.value.length; i += 1) {
+    const dist = Math.abs(mx - cachedXs.value[i])
+    if (dist < best) {
+      best = dist
+      nearest = i
+    }
+  }
+  return nearest
+}
+
+const refreshXsCache = (rectWidth) => {
+  cachedXs.value = points.value.map((_, i) => (xForIndex(i) / W) * rectWidth)
+  lastChartWidth.value = rectWidth
+}
+
+const setTooltipPosition = ({ cardRect, pointXInCard, pointYInCard }) => {
+  const pad = 14
+  const tW = 300
+  const tH = 178
+  const gapX = 16
+  const gapY = 18 // slightly above
+
+  const prefersLeft = pointXInCard > cardRect.width * 0.62
+  const prefersRight = pointXInCard < cardRect.width * 0.38
+
+  let tx = pointXInCard + gapX
+  let ty = pointYInCard - tH - gapY
+
+  if (prefersLeft) tx = pointXInCard - tW - gapX
+  if (prefersRight) tx = pointXInCard + gapX
+
+  tooltip.value.x = clamp(tx, pad, cardRect.width - tW - pad)
+  tooltip.value.y = clamp(ty, pad, cardRect.height - tH - pad)
+}
+
+const updateHoverFrame = (chartRect) => {
+  const el = containerRef.value
+  const card = cardRef.value
+  if (!el || !card) return
+
+  const pts = points.value
+  if (!pts.length) return
+
+  const nearest = getNearestIndex(lastMouse.value.x)
+
+  if (hoverIndex.value !== nearest) hoverIndex.value = nearest
+  tooltip.value.visible = true
+
+  const cardRect = card.getBoundingClientRect()
+
+  const px = cachedXs.value[nearest] || 0
+  const py = (yForHours(pts[nearest].hours) / H) * chartRect.height
+
+  const chartOffsetX = chartRect.left - cardRect.left
+  const chartOffsetY = chartRect.top - cardRect.top
+
+  const pointXInCard = chartOffsetX + px
+  const pointYInCard = chartOffsetY + py
+
+  setTooltipPosition({ cardRect, pointXInCard, pointYInCard })
+}
+
 const onMouseLeave = () => {
   hoverIndex.value = -1
   tooltip.value.visible = false
@@ -198,108 +271,59 @@ const onMouseMove = (e) => {
   if (!el) return
 
   const rect = el.getBoundingClientRect()
-  const mx = e.clientX - rect.left
-  const my = e.clientY - rect.top
+  lastMouse.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
 
-  // Find nearest point by x
-  const pts = points.value
-  if (!pts.length) return
+  const needsCache = !cachedXs.value.length || Math.abs(lastChartWidth.value - rect.width) > 0.5
+  if (needsCache) refreshXsCache(rect.width)
 
-  const xs = pts.map((_, i) => {
-    // map svg x to CSS x based on viewBox scaling
-    // since we're using 100% width with a fixed viewBox, ratio is consistent
-    const svgX = xForIndex(i)
-    return (svgX / W) * rect.width
+  if (rafId.value) return
+  rafId.value = window.requestAnimationFrame(() => {
+    rafId.value = 0
+    updateHoverFrame(rect)
   })
-
-  let nearest = 0
-  let best = Infinity
-  for (let i = 0; i < xs.length; i += 1) {
-    const dist = Math.abs(mx - xs[i])
-    if (dist < best) {
-      best = dist
-      nearest = i
-    }
-  }
-
-  hoverIndex.value = nearest
-  tooltip.value.visible = true
-
-  // Tooltip position: float near cursor but keep inside card
-  // Tooltip position: float near cursor but keep inside card
-  const pad = 14
-  const tW = 300
-  const tH = 178
-
-  // Anchor to the active point (stable & predictable)
-  const px = (xForIndex(nearest) / W) * rect.width
-  const py = (yForHours(pts[nearest].hours) / H) * rect.height
-
-  // Decide left/right placement
-  const prefersLeft = px > rect.width * 0.62
-  const prefersRight = px < rect.width * 0.38
-
-  // Default: place to the right, above
-  let tx = px + 16
-  let ty = py - tH - 14
-
-  // If point is on right side, place tooltip to the left
-  if (prefersLeft) tx = px - tW - 16
-
-  // If too close to left edge, force right
-  if (prefersRight) tx = px + 16
-
-  // If tooltip would go above container, push below point
-  if (ty < pad) ty = py + 14
-
-  // If tooltip would go below container, pull above point
-  if (ty + tH > rect.height - pad) ty = py - tH - 14
-
-  // Hard clamp (never escape container)
-  tooltip.value.x = clamp(tx, pad, rect.width - tW - pad)
-  tooltip.value.y = clamp(ty, pad, rect.height - tH - pad)
 }
 
 const onKeyDown = (e) => {
-  // accessibility: arrow keys move hover focus if desired
   if (!points.value.length) return
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
 
   e.preventDefault()
   if (hoverIndex.value < 0) hoverIndex.value = 0
+
   hoverIndex.value =
     e.key === 'ArrowLeft'
       ? Math.max(0, hoverIndex.value - 1)
       : Math.min(points.value.length - 1, hoverIndex.value + 1)
 
   tooltip.value.visible = true
-  // place tooltip near active point center
+
   const el = containerRef.value
-  if (!el) return
+  const card = cardRef.value
+  if (!el || !card) return
+
   const rect = el.getBoundingClientRect()
-  const px = (xForIndex(hoverIndex.value) / W) * rect.width
-  const pad = 14
-  const tW = 300
-  const tH = 178
+  if (!cachedXs.value.length || Math.abs(lastChartWidth.value - rect.width) > 0.5) {
+    refreshXsCache(rect.width)
+  }
 
-  const py = (yForHours(points.value[hoverIndex.value].hours) / H) * rect.height
-
-  const prefersLeft = px > rect.width * 0.62
-  let tx = prefersLeft ? px - tW - 16 : px + 16
-  let ty = py - tH - 14
-  if (ty < pad) ty = py + 14
-
-  tooltip.value.x = clamp(tx, pad, rect.width - tW - pad)
-  tooltip.value.y = clamp(ty, pad, rect.height - tH - pad)
+  updateHoverFrame(rect)
 }
 
+watch(
+  () => points.value.length,
+  () => {
+    cachedXs.value = []
+    lastChartWidth.value = 0
+  },
+)
+
 onBeforeUnmount(() => {
-  // nothing to cleanup here
+  if (rafId.value) cancelAnimationFrame(rafId.value)
 })
 </script>
 
 <template>
-  <section class="behavior-card">
+  <section ref="cardRef" class="behavior-card">
     <header class="behavior-card__header">
       <div class="behavior-card__titles">
         <h2 class="behavior-card__title">{{ title }}</h2>
@@ -363,7 +387,7 @@ onBeforeUnmount(() => {
             :y="P.top + innerH - barHeightForTrades(p.tradesExecuted)"
             width="28"
             :height="barHeightForTrades(p.tradesExecuted)"
-            :class="['bar', { 'bar--active': hoverIndex === i }]"
+            :class="['bar', 'bar--hoverable', { 'bar--active': hoverIndex === i }]"
             rx="6"
           />
         </g>
@@ -411,49 +435,49 @@ onBeforeUnmount(() => {
           </text>
         </g>
       </svg>
+    </div>
 
-      <!-- Tooltip (dark card, like your reference) -->
-      <div
-        v-if="tooltip.visible && hoveredPoint"
-        class="tooltip"
-        :style="{ transform: `translate(${tooltip.x}px, ${tooltip.y}px)` }"
-        role="status"
-        aria-live="polite"
-      >
-        <div class="tooltip__date">{{ formatDateHuman(hoveredPoint.date) }}</div>
+    <!-- Tooltip floats within the entire card (not clipped by chart-shell) -->
+    <div
+      v-if="tooltip.visible && hoveredPoint"
+      class="tooltip"
+      :style="{ transform: `translate3d(${tooltip.x}px, ${tooltip.y}px, 0)` }"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="tooltip__date">{{ formatDateHuman(hoveredPoint.date) }}</div>
 
-        <div class="tooltip__row">
-          <span class="tooltip__swatch tooltip__swatch--line" aria-hidden="true"></span>
-          <div class="tooltip__label">Time on chart</div>
-          <div class="tooltip__value">{{ formatHours(hoveredPoint.hours) }}</div>
-        </div>
-
-        <div class="tooltip__row">
-          <span class="tooltip__swatch tooltip__swatch--bars" aria-hidden="true"></span>
-          <div class="tooltip__label">Trades executed</div>
-          <div class="tooltip__value">{{ hoveredPoint.tradesExecuted }}</div>
-        </div>
-
-        <div class="tooltip__row">
-          <span class="tooltip__swatch tooltip__swatch--muted" aria-hidden="true"></span>
-          <div class="tooltip__label">Trades closed</div>
-          <div class="tooltip__value">{{ hoveredPoint.tradesClosed }}</div>
-        </div>
-
-        <div class="tooltip__row tooltip__row--thin">
-          <div class="tooltip__label">Held for (avg)</div>
-          <div class="tooltip__value">{{ hoveredPoint.avgHoldDays.toFixed(1) }}d</div>
-        </div>
-
-        <div class="tooltip__divider" />
-
-        <div class="tooltip__meta">
-          <div class="tooltip__metaLabel">Top strategy</div>
-          <div class="tooltip__metaValue">{{ hoveredPoint.topStrategy }}</div>
-        </div>
-
-        <div class="tooltip__hint">Hover other days to compare</div>
+      <div class="tooltip__row">
+        <span class="tooltip__swatch tooltip__swatch--line" aria-hidden="true"></span>
+        <div class="tooltip__label">Time on chart</div>
+        <div class="tooltip__value">{{ formatHours(hoveredPoint.hours) }}</div>
       </div>
+
+      <div class="tooltip__row">
+        <span class="tooltip__swatch tooltip__swatch--bars" aria-hidden="true"></span>
+        <div class="tooltip__label">Trades executed</div>
+        <div class="tooltip__value">{{ hoveredPoint.tradesExecuted }}</div>
+      </div>
+
+      <div class="tooltip__row">
+        <span class="tooltip__swatch tooltip__swatch--muted" aria-hidden="true"></span>
+        <div class="tooltip__label">Trades closed</div>
+        <div class="tooltip__value">{{ hoveredPoint.tradesClosed }}</div>
+      </div>
+
+      <div class="tooltip__row tooltip__row--thin">
+        <div class="tooltip__label">Held for (avg)</div>
+        <div class="tooltip__value">{{ hoveredPoint.avgHoldDays.toFixed(1) }}d</div>
+      </div>
+
+      <div class="tooltip__divider" />
+
+      <div class="tooltip__meta">
+        <div class="tooltip__metaLabel">Top strategy</div>
+        <div class="tooltip__metaValue">{{ hoveredPoint.topStrategy }}</div>
+      </div>
+
+      <div class="tooltip__hint">Hover other days to compare</div>
     </div>
   </section>
 </template>
@@ -463,6 +487,8 @@ onBeforeUnmount(() => {
    Card shell (matches your dashboard style)
    ========================= */
 .behavior-card {
+  position: relative;
+  overflow: visible;
   background: #ffffff;
   border: 1px solid rgba(232, 236, 243, 1);
   border-radius: 0.9rem;
@@ -560,7 +586,7 @@ onBeforeUnmount(() => {
 }
 
 /* =========================
-   Chart shell & hover feel (like your reference)
+   Chart shell & hover feel
    ========================= */
 .chart-shell {
   position: relative;
@@ -569,28 +595,25 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(232, 236, 243, 1);
   overflow: hidden;
   padding: 0.75rem 0.75rem 0.35rem;
+  cursor: pointer;
 
-  transition:
-    transform 160ms ease,
-    box-shadow 160ms ease;
+  transition: border-color 140ms ease;
+}
+
+.chart-shell:hover {
+  border-color: rgba(11, 92, 171, 0.22); /* subtle microanimation, no shadow */
 }
 
 .chart-shell:focus {
   outline: none;
-  box-shadow:
-    0 0 0 3px rgba(11, 92, 171, 0.14),
-    0 18px 40px rgba(16, 24, 40, 0.08);
-}
-
-.chart-shell:hover {
-  box-shadow: 0 18px 44px rgba(16, 24, 40, 0.09);
-  transform: translateY(-1px);
+  border-color: rgba(11, 92, 171, 0.3); /* subtle focus, no shadow */
 }
 
 .chart {
   width: 100%;
   height: 330px;
   display: block;
+  cursor: pointer;
 }
 
 /* Grid + axes */
@@ -617,11 +640,16 @@ onBeforeUnmount(() => {
 .bar {
   fill: rgba(11, 92, 171, 0.12);
   transition:
-    fill 160ms ease,
-    opacity 160ms ease;
+    fill 120ms ease,
+    opacity 120ms ease;
 }
+
+.bar--hoverable:hover {
+  fill: rgba(11, 92, 171, 0.92); /* strong “line blue” feel */
+}
+
 .bar--active {
-  fill: rgba(11, 92, 171, 0.22);
+  fill: rgba(11, 92, 171, 0.92);
 }
 
 /* Area & line */
@@ -653,7 +681,7 @@ onBeforeUnmount(() => {
 }
 
 /* =========================
-   Tooltip (dark card like your screenshots)
+   Tooltip (floating dark card)
    ========================= */
 .tooltip {
   position: absolute;
@@ -666,8 +694,10 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(255, 255, 255, 0.06);
   padding: 0.9rem 0.95rem;
   color: rgba(255, 255, 255, 0.92);
-  transform-origin: top left;
   pointer-events: none;
+
+  will-change: transform;
+  transform-origin: top left;
 }
 
 .tooltip__date {
