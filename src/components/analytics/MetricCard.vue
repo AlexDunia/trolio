@@ -4,8 +4,9 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  // allow number or string values from normalized data
   value: {
-    type: String,
+    type: [String, Number],
     required: true,
   },
   trend: {
@@ -13,8 +14,8 @@ const props = defineProps({
     default: '',
   },
   /**
-   * Optional icon control (won’t break existing usage)
-   * Possible values: 'clock' | 'default'
+   * Optional icon control
+   * Possible values: 'clock' | 'default' | 'trades' | 'pnl' | 'winrate' | 'star'
    */
   icon: {
     type: String,
@@ -25,11 +26,8 @@ const props = defineProps({
 
 <template>
   <div class="metric-card">
-    <h3 class="metric-title">{{ props.title }}</h3>
-
-    <div class="metric-main">
+    <div class="metric-header">
       <span class="metric-icon" aria-hidden="true">
-        <!-- Clock icon (default like your Figma cards) -->
         <svg
           v-if="props.icon === 'clock'"
           viewBox="0 0 24 24"
@@ -43,11 +41,65 @@ const props = defineProps({
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
         </svg>
-
-        <!-- Fallback simple dot icon -->
+        <svg
+          v-else-if="props.icon === 'trades'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <path d="M3 7h18" />
+          <path d="M3 12h18" />
+          <path d="M3 17h18" />
+        </svg>
+        <svg
+          v-else-if="props.icon === 'pnl'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <path d="M12 1v22" />
+          <path d="M17 5a5 5 0 0 0-10 0" />
+        </svg>
+        <svg
+          v-else-if="props.icon === 'winrate'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <path d="M12 2l3 6 6 .5-4.5 3.9L18 20l-6-3.5L6 20l1.5-7.6L3 8.5 9 8z" />
+        </svg>
+        <svg
+          v-else-if="props.icon === 'star'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <path
+            d="M12 .587l3.668 7.431L24 9.75l-6 5.847 1.417 8.323L12 19.771 4.583 23.92 6 15.597 0 9.75l8.332-1.732z"
+          />
+        </svg>
         <span v-else class="metric-icon__dot"></span>
       </span>
+      <h3 class="metric-title">{{ props.title }}</h3>
+    </div>
 
+    <div class="metric-main">
       <div class="metric-value">{{ props.value }}</div>
     </div>
 
@@ -56,9 +108,9 @@ const props = defineProps({
       class="metric-trend"
       :class="{ 'metric-trend--negative': props.trend.includes('-') }"
     >
-      <span class="metric-trend__arrow" aria-hidden="true">
-        {{ props.trend.includes('-') ? '↓' : '↑' }}
-      </span>
+      <span class="metric-trend__arrow" aria-hidden="true">{{
+        props.trend.includes('-') ? '↓' : '↑'
+      }}</span>
       <span class="metric-trend__text">{{ props.trend }}</span>
     </div>
   </div>
@@ -88,8 +140,15 @@ const props = defineProps({
   background: rgba(31, 131, 218, 0.25); /* light blue accent */
 }
 
+.metric-header {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.9rem;
+}
+
 .metric-title {
-  margin: 0 0 0.9rem;
+  margin: 0;
   font-family:
     'Poppins',
     system-ui,
@@ -109,6 +168,7 @@ const props = defineProps({
   display: flex;
   align-items: center;
   gap: 0.65rem;
+  justify-content: flex-start;
 }
 
 .metric-icon {

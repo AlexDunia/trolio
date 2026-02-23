@@ -1,21 +1,23 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 
 /**
  * BehaviorChart.vue (no heavy chart libs)
- * - Line + soft area fill (Time on chart)
- * - Light bars (Trades executed)
- * - Hover: vertical guide + active dot + tooltip (dark floating card)
+ * Goals:
+ * - Tooltip ALWAYS floats above the active point (never below)
+ * - Tooltip never covers the x-axis day labels (Mon/Tue/...) — even when the point is near bottom
+ * - Tooltip is not clipped on Thu–Sun (positions relative to the full card, not chart box)
+ * - Hover stays smooth (requestAnimationFrame + cached x positions)
+ * - Cursor becomes a hand anywhere inside the chart area
+ * - Bars highlight to the line-blue on hover/active
  *
- * Fixes:
- * - Tooltip stays ABOVE points (no flip-below), and can float into header space
- * - Tooltip no longer gets clipped/compressed for Thu–Sun
- * - Hover is optimized using requestAnimationFrame + cached x positions
+ * Notes:
+ * - Tooltip is positioned inside the card (behavior-card), so it can float into header space.
+ * - Tooltip Y is clamped to stay above the plot bottom (so it doesn’t cover x labels).
  */
 
 const props = defineProps({
   /**
-   * Optional external data. If empty, component uses mockData.
    * Expected shape:
    * [
    *  { dayLabel: 'Mon', date: '2026-02-16', hours: 4.2, tradesExecuted: 2, tradesClosed: 1, avgHoldDays: 1.3, topStrategy: 'FVG' }
@@ -139,6 +141,7 @@ const barHeightForTrades = (count) => {
 const linePath = computed(() => {
   const pts = points.value
   if (!pts.length) return ''
+
   return pts
     .map((p, i) => {
       const x = xForIndex(i)
@@ -151,29 +154,31 @@ const linePath = computed(() => {
 const areaPath = computed(() => {
   const pts = points.value
   if (!pts.length) return ''
+
   const startX = xForIndex(0)
   const endX = xForIndex(pts.length - 1)
   const baseY = P.top + innerH
-  return `${linePath.value} L ${endX.toFixed(2)} ${baseY.toFixed(2)} L ${startX.toFixed(2)} ${baseY.toFixed(
+
+  return `${linePath.value} L ${endX.toFixed(2)} ${baseY.toFixed(2)} L ${startX.toFixed(
     2,
-  )} Z`
+  )} ${baseY.toFixed(2)} Z`
 })
 
 /** Hover + tooltip */
 const cardRef = ref(null)
-const containerRef = ref(null)
+const chartRef = ref(null)
+const tooltipRef = ref(null)
 
 const hoverIndex = ref(-1)
-const tooltip = ref({
-  visible: false,
-  x: 0,
-  y: 0,
-})
+const tooltip = ref({ visible: false, x: 0, y: 0 })
 
 const rafId = ref(0)
 const lastMouse = ref({ x: 0, y: 0 })
+
 const cachedXs = ref([])
 const lastChartWidth = ref(0)
+
+const tooltipSize = ref({ w: 300, h: 180 })
 
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
 
@@ -199,6 +204,7 @@ const hoveredPoint = computed(() => {
 const getNearestIndex = (mx) => {
   let nearest = 0
   let best = Infinity
+
   for (let i = 0; i < cachedXs.value.length; i += 1) {
     const dist = Math.abs(mx - cachedXs.value[i])
     if (dist < best) {
@@ -214,30 +220,65 @@ const refreshXsCache = (rectWidth) => {
   lastChartWidth.value = rectWidth
 }
 
-const setTooltipPosition = ({ cardRect, pointXInCard, pointYInCard }) => {
+const measureTooltip = async () => {
+  await nextTick()
+  const el = tooltipRef.value
+  if (!el) return
+
+  const r = el.getBoundingClientRect()
+  // width is fixed in CSS, but measure anyway in case you change it later
+  tooltipSize.value = {
+    w: Math.round(r.width || 300),
+    h: Math.round(r.height || 180),
+  }
+}
+
+/**
+ * Key rule:
+ * - Tooltip must stay ABOVE the point
+ * - Tooltip must NOT cover x-axis labels => clamp to plotBottom (not card bottom)
+ */
+const setTooltipPosition = ({
+  cardRect,
+  chartRect,
+  pointXInCard,
+  pointYInCard,
+  plotBottomInCard,
+}) => {
   const pad = 14
-  const tW = 300
-  const tH = 178
   const gapX = 16
-  const gapY = 18 // slightly above
+  const gapY = 18 // how much above the point
+
+  const tW = tooltipSize.value.w
+  const tH = tooltipSize.value.h
 
   const prefersLeft = pointXInCard > cardRect.width * 0.62
   const prefersRight = pointXInCard < cardRect.width * 0.38
 
   let tx = pointXInCard + gapX
-  let ty = pointYInCard - tH - gapY
-
   if (prefersLeft) tx = pointXInCard - tW - gapX
   if (prefersRight) tx = pointXInCard + gapX
 
-  tooltip.value.x = clamp(tx, pad, cardRect.width - tW - pad)
-  tooltip.value.y = clamp(ty, pad, cardRect.height - tH - pad)
+  // ALWAYS above the point (no flip-below)
+  let ty = pointYInCard - tH - gapY
+
+  // X clamp inside card
+  const minX = pad
+  const maxX = cardRect.width - tW - pad
+
+  // Y clamp:
+  // - allow floating into header (minY can be small)
+  // - prevent covering x labels by clamping against plotBottomInCard
+  const minY = pad
+  const maxY = Math.max(minY, plotBottomInCard - tH - 10)
+
+  tooltip.value.x = clamp(tx, minX, maxX)
+  tooltip.value.y = clamp(ty, minY, maxY)
 }
 
 const updateHoverFrame = (chartRect) => {
-  const el = containerRef.value
   const card = cardRef.value
-  if (!el || !card) return
+  if (!card) return
 
   const pts = points.value
   if (!pts.length) return
@@ -249,16 +290,36 @@ const updateHoverFrame = (chartRect) => {
 
   const cardRect = card.getBoundingClientRect()
 
-  const px = cachedXs.value[nearest] || 0
-  const py = (yForHours(pts[nearest].hours) / H) * chartRect.height
+  const pxInChart = cachedXs.value[nearest] || 0
+  const pyInChart = (yForHours(pts[nearest].hours) / H) * chartRect.height
 
+  // where chart sits inside the card
   const chartOffsetX = chartRect.left - cardRect.left
   const chartOffsetY = chartRect.top - cardRect.top
 
-  const pointXInCard = chartOffsetX + px
-  const pointYInCard = chartOffsetY + py
+  const pointXInCard = chartOffsetX + pxInChart
+  const pointYInCard = chartOffsetY + pyInChart
 
-  setTooltipPosition({ cardRect, pointXInCard, pointYInCard })
+  // Plot bottom inside chart (avoid x labels)
+  const plotBottomInChart = ((P.top + innerH) / H) * chartRect.height
+  const plotBottomInCard = chartOffsetY + plotBottomInChart
+
+  setTooltipPosition({
+    cardRect,
+    chartRect,
+    pointXInCard,
+    pointYInCard,
+    plotBottomInCard,
+  })
+}
+
+const scheduleHoverUpdate = (chartRect) => {
+  if (rafId.value) return
+
+  rafId.value = window.requestAnimationFrame(() => {
+    rafId.value = 0
+    updateHoverFrame(chartRect)
+  })
 }
 
 const onMouseLeave = () => {
@@ -267,7 +328,7 @@ const onMouseLeave = () => {
 }
 
 const onMouseMove = (e) => {
-  const el = containerRef.value
+  const el = chartRef.value
   if (!el) return
 
   const rect = el.getBoundingClientRect()
@@ -276,11 +337,7 @@ const onMouseMove = (e) => {
   const needsCache = !cachedXs.value.length || Math.abs(lastChartWidth.value - rect.width) > 0.5
   if (needsCache) refreshXsCache(rect.width)
 
-  if (rafId.value) return
-  rafId.value = window.requestAnimationFrame(() => {
-    rafId.value = 0
-    updateHoverFrame(rect)
-  })
+  scheduleHoverUpdate(rect)
 }
 
 const onKeyDown = (e) => {
@@ -288,8 +345,8 @@ const onKeyDown = (e) => {
   if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
 
   e.preventDefault()
-  if (hoverIndex.value < 0) hoverIndex.value = 0
 
+  if (hoverIndex.value < 0) hoverIndex.value = 0
   hoverIndex.value =
     e.key === 'ArrowLeft'
       ? Math.max(0, hoverIndex.value - 1)
@@ -297,23 +354,39 @@ const onKeyDown = (e) => {
 
   tooltip.value.visible = true
 
-  const el = containerRef.value
-  const card = cardRef.value
-  if (!el || !card) return
+  const el = chartRef.value
+  if (!el) return
 
   const rect = el.getBoundingClientRect()
   if (!cachedXs.value.length || Math.abs(lastChartWidth.value - rect.width) > 0.5) {
     refreshXsCache(rect.width)
   }
 
-  updateHoverFrame(rect)
+  scheduleHoverUpdate(rect)
 }
 
+/** When data changes (e.g., weekly -> monthly), reset cache + re-measure tooltip */
 watch(
   () => points.value.length,
   () => {
     cachedXs.value = []
     lastChartWidth.value = 0
+    hoverIndex.value = -1
+    tooltip.value.visible = false
+  },
+)
+
+watch(
+  () => hoverIndex.value,
+  async (i) => {
+    if (i < 0) return
+    await measureTooltip()
+
+    const el = chartRef.value
+    if (!el) return
+
+    const rect = el.getBoundingClientRect()
+    scheduleHoverUpdate(rect)
   },
 )
 
@@ -343,7 +416,7 @@ onBeforeUnmount(() => {
     </header>
 
     <div
-      ref="containerRef"
+      ref="chartRef"
       class="chart-shell"
       tabindex="0"
       role="group"
@@ -387,7 +460,7 @@ onBeforeUnmount(() => {
             :y="P.top + innerH - barHeightForTrades(p.tradesExecuted)"
             width="28"
             :height="barHeightForTrades(p.tradesExecuted)"
-            :class="['bar', 'bar--hoverable', { 'bar--active': hoverIndex === i }]"
+            :class="['bar', { 'bar--active': hoverIndex === i }]"
             rx="6"
           />
         </g>
@@ -437,9 +510,10 @@ onBeforeUnmount(() => {
       </svg>
     </div>
 
-    <!-- Tooltip floats within the entire card (not clipped by chart-shell) -->
+    <!-- Tooltip floats in the card (NOT clipped by chart-shell) -->
     <div
       v-if="tooltip.visible && hoveredPoint"
+      ref="tooltipRef"
       class="tooltip"
       :style="{ transform: `translate3d(${tooltip.x}px, ${tooltip.y}px, 0)` }"
       role="status"
@@ -484,7 +558,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* =========================
-   Card shell (matches your dashboard style)
+   Card shell
    ========================= */
 .behavior-card {
   position: relative;
@@ -541,7 +615,7 @@ onBeforeUnmount(() => {
   color: rgba(15, 23, 42, 0.5);
 }
 
-/* Legend (top-right) */
+/* Legend */
 .behavior-card__legend {
   display: flex;
   align-items: center;
@@ -586,7 +660,7 @@ onBeforeUnmount(() => {
 }
 
 /* =========================
-   Chart shell & hover feel
+   Chart shell (no shadows)
    ========================= */
 .chart-shell {
   position: relative;
@@ -595,18 +669,18 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(232, 236, 243, 1);
   overflow: hidden;
   padding: 0.75rem 0.75rem 0.35rem;
-  cursor: pointer;
 
+  cursor: pointer;
   transition: border-color 140ms ease;
 }
 
 .chart-shell:hover {
-  border-color: rgba(11, 92, 171, 0.22); /* subtle microanimation, no shadow */
+  border-color: rgba(11, 92, 171, 0.22);
 }
 
 .chart-shell:focus {
   outline: none;
-  border-color: rgba(11, 92, 171, 0.3); /* subtle focus, no shadow */
+  border-color: rgba(11, 92, 171, 0.3);
 }
 
 .chart {
@@ -639,13 +713,11 @@ onBeforeUnmount(() => {
 /* Bars */
 .bar {
   fill: rgba(11, 92, 171, 0.12);
-  transition:
-    fill 120ms ease,
-    opacity 120ms ease;
+  transition: fill 120ms ease;
 }
 
-.bar--hoverable:hover {
-  fill: rgba(11, 92, 171, 0.92); /* strong “line blue” feel */
+.bar:hover {
+  fill: rgba(11, 92, 171, 0.92);
 }
 
 .bar--active {
@@ -737,9 +809,11 @@ onBeforeUnmount(() => {
 .tooltip__swatch--line {
   background: #67b4ff;
 }
+
 .tooltip__swatch--bars {
   background: rgba(103, 180, 255, 0.35);
 }
+
 .tooltip__swatch--muted {
   background: rgba(255, 255, 255, 0.12);
 }
