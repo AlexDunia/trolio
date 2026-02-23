@@ -1,41 +1,44 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, watch, computed } from 'vue'
 import DashboardHero from '@/components/dashboard/DashboardHero.vue'
 import BaseTabs from '@/components/shared/BaseTabs.vue'
 import MetricCard from '@/components/analytics/MetricCard.vue'
 import BehaviorChart from '@/components/analytics/BehaviorChart.vue'
 import InsightCard from '@/components/insights/InsightCard.vue'
 import SummaryMetric from '@/components/analytics/SummaryMetric.vue'
+import useDashboard from '@/composables/useDashboard'
 
-const activeTab = ref('weekly')
+// orchestrator: single source of truth for the dashboard
+const { activePeriod, anchor, range, dashboardData, isLoading, error, fetchDashboard } =
+  useDashboard()
 
 const tabs = [
   { id: 'weekly', label: 'Weekly' },
   { id: 'monthly', label: 'Monthly' },
 ]
 
-const kpiCards = [
-  { title: 'Win Rate', value: '68%', trend: '+5%' },
-  { title: 'Total Trades', value: '142', trend: '+12' },
-  { title: 'Avg Trade Return', value: '2.3%', trend: '+0.5%' },
-]
+const kpiCards = computed(() =>
+  dashboardData.value && dashboardData.value.kpi ? dashboardData.value.kpi : [],
+)
+const insights = computed(() =>
+  dashboardData.value && dashboardData.value.insights ? dashboardData.value.insights : [],
+)
+const summaryMetrics = computed(() =>
+  dashboardData.value && dashboardData.value.summary ? dashboardData.value.summary : [],
+)
+const chartPoints = computed(() =>
+  dashboardData.value && dashboardData.value.chartPoints ? dashboardData.value.chartPoints : [],
+)
 
-const insights = [
-  {
-    title: 'Peak Performance Hour',
-    description: 'Your best trades happen between 2-4 PM. Focus your energy there.',
+// trigger fetch when period or anchor changes (immediate on mount)
+watch(
+  [activePeriod, anchor],
+  () => {
+    // deliberate: ignore errors here, page can show fallback UI
+    void fetchDashboard().catch(() => {})
   },
-  {
-    title: 'Consistency Milestone',
-    description: "You've maintained a 14-day trading streak. Great discipline!",
-  },
-]
-
-const summaryMetrics = [
-  { title: 'Gross P&L', value: '$3,240', delta: '+$420' },
-  { title: 'Risk/Reward Ratio', value: '1:2.5', delta: '+0.3' },
-  { title: 'Drawdown', value: '8.5%', delta: '-1.2%' },
-]
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -44,7 +47,7 @@ const summaryMetrics = [
     <DashboardHero name="Alex" subtitle="Track, analyze, and improve your trading consistency." />
 
     <!-- Tabs Section -->
-    <BaseTabs :tabs="tabs" v-model="activeTab">
+    <BaseTabs :tabs="tabs" v-model="activePeriod">
       <!-- <template #default="{ activeTab: tab }">
         <p class="tab-content-placeholder">Viewing {{ tab }} data</p>
       </template> -->
@@ -61,7 +64,7 @@ const summaryMetrics = [
     </section>
 
     <!-- Behavior Chart -->
-    <BehaviorChart />
+    <BehaviorChart :data="chartPoints" />
 
     <!-- Insights Row -->
     <section class="insights-section">
