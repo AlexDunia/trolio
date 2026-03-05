@@ -12,7 +12,7 @@ defineProps({
 <template>
   <section class="activity-metrics">
     <div class="metrics-grid">
-      <MetricCard v-for="(m, idx) in metrics" :key="idx" v-bind="m" />
+      <MetricCard v-for="m in metrics" :key="m.title" v-bind="m" />
     </div>
   </section>
 </template>

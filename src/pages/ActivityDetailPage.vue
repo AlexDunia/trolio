@@ -2,20 +2,11 @@
 import { useRouter } from 'vue-router'
 import { useActivityDetail } from '@/composables/useActivityDetail'
 import ActivityTopMetrics from '@/components/activity-detail/ActivityTopMetrics.vue'
-import TradeAccordion from '@/components/activity-detail/TradeAccordion.vue'
+import ActivityTradeList from '@/components/activity-detail/ActivityTradeList.vue'
 
 const router = useRouter()
 
-const {
-  dayKey,
-  topMetrics,
-  trades,
-  openTradeId,
-  toggleTrade,
-  addImages,
-  removeImages,
-  getGalleryImages,
-} = useActivityDetail()
+const { dayKey, topMetrics, trades, openTradeId, toggleTrade } = useActivityDetail()
 
 // optional: navigate back to /dashboard/activity
 const backToActivity = () => router.push('/dashboard/activity')
@@ -28,13 +19,10 @@ const backToActivity = () => router.push('/dashboard/activity')
 
     <ActivityTopMetrics :metrics="topMetrics" />
 
-    <TradeAccordion
+    <ActivityTradeList
       :trades="trades"
-      :openId="openTradeId"
-      :getImagesFn="getGalleryImages"
-      :addImagesFn="addImages"
-      :removeImagesFn="removeImages"
-      @toggle="toggleTrade"
+      :expanded-id="openTradeId"
+      @rowClick="toggleTrade"
     />
   </div>
 </template>

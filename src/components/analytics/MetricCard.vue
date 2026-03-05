@@ -1,3 +1,4 @@
+<!-- src/components/analytics/MetricCard.vue -->
 <script setup>
 const props = defineProps({
   title: {
@@ -15,11 +16,28 @@ const props = defineProps({
   },
   /**
    * Optional icon control
-   * Possible values: 'clock' | 'default' | 'trades' | 'pnl' | 'winrate' | 'star'
+   * Possible values:
+   * 'clock' | 'default' | 'trades' | 'pnl' | 'winrate' | 'star'
+   * 'pairs' | 'calendar' | 'activity' | 'consistency' | 'most_pair' | 'bias'
    */
   icon: {
     type: String,
     default: 'clock',
+    validator: (value) =>
+      [
+        'clock',
+        'default',
+        'trades',
+        'pnl',
+        'winrate',
+        'star',
+        'pairs',
+        'calendar',
+        'activity',
+        'consistency',
+        'most_pair',
+        'bias',
+      ].includes(value),
   },
 })
 </script>
@@ -28,6 +46,7 @@ const props = defineProps({
   <div class="metric-card">
     <div class="metric-header">
       <span class="metric-icon" aria-hidden="true">
+        <!-- Time on chart -->
         <svg
           v-if="props.icon === 'clock'"
           viewBox="0 0 24 24"
@@ -41,6 +60,8 @@ const props = defineProps({
           <circle cx="12" cy="12" r="9" />
           <path d="M12 7v5l3 2" />
         </svg>
+
+        <!-- Trades count (list) -->
         <svg
           v-else-if="props.icon === 'trades'"
           viewBox="0 0 24 24"
@@ -55,6 +76,8 @@ const props = defineProps({
           <path d="M3 12h18" />
           <path d="M3 17h18" />
         </svg>
+
+        <!-- PnL -->
         <svg
           v-else-if="props.icon === 'pnl'"
           viewBox="0 0 24 24"
@@ -68,6 +91,8 @@ const props = defineProps({
           <path d="M12 1v22" />
           <path d="M17 5a5 5 0 0 0-10 0" />
         </svg>
+
+        <!-- Winrate -->
         <svg
           v-else-if="props.icon === 'winrate'"
           viewBox="0 0 24 24"
@@ -80,6 +105,8 @@ const props = defineProps({
         >
           <path d="M12 2l3 6 6 .5-4.5 3.9L18 20l-6-3.5L6 20l1.5-7.6L3 8.5 9 8z" />
         </svg>
+
+        <!-- Star / highlight -->
         <svg
           v-else-if="props.icon === 'star'"
           viewBox="0 0 24 24"
@@ -94,8 +121,114 @@ const props = defineProps({
             d="M12 .587l3.668 7.431L24 9.75l-6 5.847 1.417 8.323L12 19.771 4.583 23.92 6 15.597 0 9.75l8.332-1.732z"
           />
         </svg>
+
+        <!-- Pairs traded (variety / symbol list) -->
+        <svg
+          v-else-if="props.icon === 'pairs'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <path d="M7 7h12" />
+          <path d="M7 12h12" />
+          <path d="M7 17h12" />
+          <path d="M4 7h.01" />
+          <path d="M4 12h.01" />
+          <path d="M4 17h.01" />
+        </svg>
+
+        <!-- Most active day (calendar) -->
+        <svg
+          v-else-if="props.icon === 'calendar'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <rect x="3" y="4" width="18" height="18" rx="2" />
+          <path d="M16 2v4" />
+          <path d="M8 2v4" />
+          <path d="M3 10h18" />
+          <path d="M8 14h.01" />
+          <path d="M12 14h.01" />
+          <path d="M16 14h.01" />
+        </svg>
+
+        <!-- Active days (effort bars) -->
+        <svg
+          v-else-if="props.icon === 'activity'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <path d="M5 20V10" />
+          <path d="M10 20V6" />
+          <path d="M15 20V13" />
+          <path d="M20 20V8" />
+        </svg>
+
+        <!-- Consistency (repeat loop) -->
+        <svg
+          v-else-if="props.icon === 'consistency'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <path d="M20 6v6h-6" />
+          <path d="M4 18v-6h6" />
+          <path d="M20 12a8 8 0 0 0-14.9-3" />
+          <path d="M4 12a8 8 0 0 0 14.9 3" />
+        </svg>
+
+        <!-- Most traded pair (dominant / #1) -->
+        <svg
+          v-else-if="props.icon === 'most_pair'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <circle cx="12" cy="8" r="4" />
+          <path d="M8 14l-2 8 6-3 6 3-2-8" />
+        </svg>
+
+        <!-- Most used bias (compass) -->
+        <svg
+          v-else-if="props.icon === 'bias'"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="metric-icon__svg"
+        >
+          <circle cx="12" cy="12" r="9" />
+          <path d="M14.5 9.5L11 13l-1.5 5 5-1.5 3.5-3.5z" />
+          <path d="M11 13l-2-2" />
+        </svg>
+
         <span v-else class="metric-icon__dot"></span>
       </span>
+
       <h3 class="metric-title">{{ props.title }}</h3>
     </div>
 

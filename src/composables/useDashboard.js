@@ -1,9 +1,10 @@
 import { ref, computed } from 'vue'
 import { periodToRange } from '@/utils/period'
-import { fetchLocalDashboard } from '@/data/localDashboard'
+import { fetchEnvelope } from '@/services/dataEnvelopeProvider'
 
-// In-memory cache keyed by `${userId}|${from}|${to}` to avoid duplicate calls
-const _cache = new Map()
+// ✅ Optional but good: cache NORMALIZED results only
+// keyed by `${userId}|${from}|${to}`
+const _normalizedCache = new Map()
 
 export default function useDashboard({ userId = import.meta.env.VITE_USER_ID ?? 'current' } = {}) {
   const activePeriod = ref('weekly')
@@ -30,6 +31,7 @@ export default function useDashboard({ userId = import.meta.env.VITE_USER_ID ?? 
       unknownMs: Number(d.unknownMs || 0),
       bySymbol: d.bySymbol || {},
     }))
+
     const rawInsights = Array.isArray(envelope.insights) ? envelope.insights : []
     const insights = rawInsights.map((it, idx) => ({
       key: it.key ?? it.title ?? `insight-${idx}`,
@@ -107,8 +109,10 @@ export default function useDashboard({ userId = import.meta.env.VITE_USER_ID ?? 
     if (!currentRange) return null
 
     const key = `${userId}|${currentRange.from}|${currentRange.to}`
-    if (_cache.has(key)) {
-      dashboardData.value = _cache.get(key)
+
+    // ✅ fast path: already normalized
+    if (_normalizedCache.has(key)) {
+      dashboardData.value = _normalizedCache.get(key)
       return dashboardData.value
     }
 
@@ -116,20 +120,20 @@ export default function useDashboard({ userId = import.meta.env.VITE_USER_ID ?? 
     error.value = null
 
     try {
-      // use local mock provider for deterministic dev data
-      const envelope = await fetchLocalDashboard({
+      const envelope = await fetchEnvelope({
+        userId,
         from: currentRange.from,
         to: currentRange.to,
-        period: currentRange.label,
-        userId,
+        periodLabel: currentRange.label,
       })
+
       const normalized = normalize(envelope)
       dashboardData.value = normalized
-      _cache.set(key, normalized)
+      _normalizedCache.set(key, normalized)
       return normalized
     } catch (err) {
-      // preserve error but provide a small non-invasive fallback so the UI isn't empty
       error.value = err
+
       const fallback = {
         raw: null,
         period: currentRange,
@@ -153,8 +157,9 @@ export default function useDashboard({ userId = import.meta.env.VITE_USER_ID ?? 
           },
         ],
       }
+
       dashboardData.value = fallback
-      _cache.set(key, fallback)
+      _normalizedCache.set(key, fallback)
       return fallback
     } finally {
       isLoading.value = false

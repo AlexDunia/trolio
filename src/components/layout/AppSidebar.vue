@@ -184,15 +184,11 @@ const ICONS = {
   top: 0;
   left: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.32); /* 32% white */
+  background: var(--sidebar-bg, #f6f7fb);
   border-right: 1px solid rgba(232, 236, 243, 0.45);
 
   /* Figma-like soft elevation */
   box-shadow: 0 16px 40px rgba(16, 24, 40, 0.08);
-
-  /* glassy feel (optional but matches 32% opacity intent) */
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
 
   padding: 1.25rem 1rem;
   display: flex;

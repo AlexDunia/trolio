@@ -15,8 +15,10 @@ defineEmits(['select'])
 
 <template>
   <section class="daily-grid">
-    <h3 class="daily-grid__title">Daily activity</h3>
-    <div class="daily-grid__row">
+    <div class="daily-grid__header">
+      <h3 class="daily-grid__title">Daily activity</h3>
+    </div>
+    <div class="daily-grid__cards">
       <DailyActivityCard
         v-for="item in daily"
         :key="item.key"
@@ -33,18 +35,29 @@ defineEmits(['select'])
 </template>
 
 <style scoped>
-.daily-grid__title {
-  font-size: 1rem;
-  font-weight: 700;
-  margin: 0 0 0.75rem 0;
-}
-.daily-grid__row {
+.daily-grid {
   display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+.daily-grid__header {
+  width: 100%;
+}
+.daily-grid__title {
+  font-size: 1.125rem;
+  color: #4b5563;
+  font-weight: 600;
+  margin: 0;
+}
+.daily-grid__cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1rem;
 }
-@media (max-width: 900px) {
-  .daily-grid__row {
-    flex-direction: column;
+
+@media (max-width: 1100px) {
+  .daily-grid__cards {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
 }
 </style>
