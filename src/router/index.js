@@ -38,6 +38,13 @@ const routes = [
           subtitle: 'Here you can add, remove, and edit properties on your profile',
         },
       },
+      {
+        path: ':id',
+        name: 'leaderboard-profile',
+        props: true,
+        component: () => import('@/pages/LeaderboardProfilePage.vue'),
+        meta: { title: 'Leaderboard Profile' },
+      },
     ],
   },
   {

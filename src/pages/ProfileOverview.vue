@@ -7,7 +7,7 @@
             <div class="profile__avatar" aria-hidden="true"></div>
           </div>
           <div class="profile__followers">
-            <div class="profile__followers-count">5000</div>
+            <div class="profile__followers-count">{{ profile.followers }}</div>
             <div class="profile__followers-meta">
               <span class="profile__followers-label">Followers</span>
               <span class="profile__followers-badge">+1 Follower</span>
@@ -16,11 +16,8 @@
         </aside>
 
         <div class="profile__right">
-          <h1 class="profile__name">Merlin Trader</h1>
-          <p class="profile__bio">
-            Six-figure trader and FundedNext Ambassador with a strong focus on precision,
-            discipline, and consistent performance across the financial markets.
-          </p>
+          <h1 class="profile__name">{{ profile.name }}</h1>
+          <p class="profile__bio">{{ profile.bio }}</p>
 
           <div class="profile__controls">
             <label class="sr-only" for="period">Period</label>
@@ -85,61 +82,209 @@
         </div>
       </div>
 
+      <section v-if="statusMessage && !trader" class="profile__analytics-status">
+        {{ statusMessage }}
+      </section>
+
       <div class="profile__heatmap">
         <h2 class="profile__heatmap-title">Activity Heatmap (Last 12 Weeks)</h2>
-        <div class="profile__heatmap-sub">3,936 Hours, 164 days</div>
-
-        <div class="heatmap">
-          <div class="heatmap__months">
-            <span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span><span>May</span
-            ><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span
-            ><span>Nov</span><span>Dec</span>
-          </div>
-
-          <div class="heatmap__grid">
-            <template v-for="(cell, idx) in heatmapCells" :key="idx">
-              <div class="heatmap__cell" :class="`heatmap__cell--lvl-${cell}`"></div>
-            </template>
-          </div>
-
-          <div class="heatmap__legend">
-            <div class="legend__label">Less</div>
-            <div class="legend__swatches">
-              <span class="swatch swatch--lvl-0"></span>
-              <span class="swatch swatch--lvl-1"></span>
-              <span class="swatch swatch--lvl-2"></span>
-              <span class="swatch swatch--lvl-3"></span>
-              <span class="swatch swatch--lvl-4"></span>
-            </div>
-            <div class="legend__label">More</div>
+        <div class="profile__heatmap-sub">{{ heatmapSubtitle }}</div>
+        <div class="profile__heatmap-body">
+          <ActivityHeatmap v-if="heatmapDays.length" :days="heatmapDays" />
+          <div v-else class="profile__analytics-empty">
+            {{ statusMessage ?? 'No activity yet. Leaderboard telemetry is still warming up.' }}
           </div>
         </div>
       </div>
+
+      <section class="profile__analytics-row">
+        <div class="profile__module">
+          <h3>Pairs studied</h3>
+          <div class="chip-row">
+            <span v-for="pair in trader?.pairsStudied ?? []" :key="pair" class="chip">{{
+              pair
+            }}</span>
+          </div>
+          <PairFocusChart :pairs="pairDistribution" />
+        </div>
+
+        <div class="profile__module">
+          <h3>Recent sessions</h3>
+          <RecentSessions :sessions="trader?.tradingSessions ?? []" />
+        </div>
+      </section>
+
+      <section class="profile__analytics-row profile__analytics-row--triple">
+        <div class="profile__module">
+          <h3>Performance snapshot</h3>
+          <PerformanceSnapshot :metrics="performanceMetrics" />
+        </div>
+        <div class="profile__module">
+          <h3>Weekly activity trend</h3>
+          <WeeklyTrendChart :series="weeklyTrendSeries" />
+        </div>
+        <div class="profile__module">
+          <h3>Consistency gauge</h3>
+          <ConsistencyGauge
+            :weekly-hours="consistencyData.weeklyHours"
+            :daily-average="consistencyData.dailyAverage"
+            :total-hours="consistencyData.totalHours"
+            :target-hours="GAUGE_TARGET"
+          />
+        </div>
+      </section>
     </section>
   </main>
 </template>
 
 <script setup>
-// imports
-import { ref, computed } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import LeaderboardService from '@/services/LeaderboardService'
+import { fetchEnvelope } from '@/services/dataEnvelopeProvider'
+import ActivityHeatmap from '@/components/analytics/ActivityHeatmap.vue'
+import WeeklyTrendChart from '@/components/analytics/WeeklyTrendChart.vue'
+import PairFocusChart from '@/components/analytics/PairFocusChart.vue'
+import RecentSessions from '@/components/analytics/RecentSessions.vue'
+import ConsistencyGauge from '@/components/analytics/ConsistencyGauge.vue'
+import PerformanceSnapshot from '@/components/analytics/PerformanceSnapshot.vue'
 
-// router / stores (none needed right now)
+const route = useRoute()
+const WEEK_RANGE_DAYS = 6
+const GAUGE_TARGET = 35
+const DEFAULT_TRADER_ID = 'merlin'
 
-// state
 const profile = ref({
   name: 'Merlin Trader',
   bio: 'Six-figure trader and FundedNext Ambassador with a strong focus on precision, discipline, and consistent performance across the financial markets.',
   followers: 5000,
 })
 
-// heatmap sample data (static for now)
-const heatmapCells = ref(
-  // small static sample, levels 0..4
-  Array.from({ length: 12 * 7 }, (_, i) => i % 5),
+const trader = ref(null)
+const envelope = ref(null)
+const isLoading = ref(false)
+const error = ref(null)
+
+const activeTraderId = computed(() => route.query.trader?.toString() || DEFAULT_TRADER_ID)
+const timeframe = computed(() => (route.query.timeframe === 'daily' ? 'daily' : 'weekly'))
+
+const heatmapDays = computed(() => {
+  const days = envelope.value?.behavior?.daily ?? []
+  return days.map((entry) => ({
+    date: entry.date,
+    minutes: Math.round((entry.totalMs ?? 0) / (1000 * 60)),
+  }))
+})
+
+const weeklyTrendSeries = computed(() =>
+  heatmapDays.value.map((entry) => ({
+    day: new Date(entry.date).toLocaleDateString('en-US', { weekday: 'short' }),
+    hours: Number(((entry.minutes || 0) / 60).toFixed(2)),
+  })),
 )
 
-// computed fields
-const displayName = computed(() => profile.value.name)
+const pairDistribution = computed(() => {
+  const sessionList = trader.value?.tradingSessions ?? []
+  const pairMap = {}
+  sessionList.forEach((session) => {
+    const minutes = session.durationMinutes ?? 0
+    if (!session.pair) return
+    pairMap[session.pair] = (pairMap[session.pair] || 0) + minutes
+  })
+  const pairs = Object.entries(pairMap).map(([pair, minutes]) => ({
+    pair,
+    hours: Number((minutes / 60).toFixed(1)),
+  }))
+  return pairs.sort((a, b) => b.hours - a.hours)
+})
+
+const performanceMetrics = computed(() => ({
+  weeklyHours: trader.value?.chartMetrics.weeklyHours ?? 0,
+  dailyAverage: trader.value?.chartMetrics.dailyAverage ?? 0,
+  totalHours: trader.value?.chartMetrics.totalHours ?? 0,
+  sessionsThisWeek: trader.value?.tradingSessions?.length ?? 0,
+}))
+
+const consistencyData = computed(() => ({
+  weeklyHours: performanceMetrics.value.weeklyHours,
+  dailyAverage: performanceMetrics.value.dailyAverage,
+  totalHours: performanceMetrics.value.totalHours,
+}))
+
+const heatmapSubtitle = computed(() => {
+  if (!trader.value) return 'Leaderboard telemetry drives this dashboard.'
+  const hours = performanceMetrics.value.weeklyHours
+  const sessions = performanceMetrics.value.sessionsThisWeek
+  return `${hours.toFixed(1)} hrs logged • ${sessions} sessions this week`
+})
+
+const statusMessage = computed(() => {
+  if (isLoading.value) return 'Loading leaderboard analytics…'
+  if (error.value) return error.value
+  if (!trader.value) return 'Leaderboard analytics are unavailable.'
+  return null
+})
+
+const formatIso = (value) => value.toISOString().slice(0, 10)
+
+function weekRange() {
+  const to = new Date()
+  const from = new Date(to)
+  from.setDate(to.getDate() - WEEK_RANGE_DAYS)
+  return { from: formatIso(from), to: formatIso(to) }
+}
+
+async function loadEnvelopeForUser(userId) {
+  const { from, to } = weekRange()
+  try {
+    envelope.value = await fetchEnvelope({ userId, from, to, periodLabel: 'week' })
+  } catch (err) {
+    console.error('ProfileOverview heatmap load error', err)
+    envelope.value = null
+  }
+}
+
+async function loadProfile() {
+  const id = activeTraderId.value
+  if (!id) {
+    trader.value = null
+    envelope.value = null
+    error.value = 'No trader selected'
+    return
+  }
+
+  isLoading.value = true
+  error.value = null
+  trader.value = null
+  envelope.value = null
+
+  try {
+    const profilePromise = LeaderboardService.getTraderLeaderboardProfile({
+      id,
+      timeframe: timeframe.value,
+    })
+    const envelopePromise = loadEnvelopeForUser(id)
+    const profileData = await profilePromise
+    await envelopePromise
+    trader.value = profileData
+    if (!profileData) {
+      error.value = 'Trader not found'
+    }
+  } catch (err) {
+    console.error('ProfileOverview load error', err)
+    error.value = 'Unable to load trader analytics'
+  } finally {
+    isLoading.value = false
+  }
+}
+
+watch(
+  () => [activeTraderId.value, timeframe.value],
+  () => {
+    void loadProfile()
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
@@ -258,10 +403,6 @@ const displayName = computed(() => profile.value.name)
   color: var(--muted);
   font-weight: 600;
 }
-.stat-card__Row {
-  margin-top: 8px;
-  font-weight: 700;
-}
 .stat-card__row {
   margin-top: 8px;
   font-weight: 700;
@@ -356,77 +497,74 @@ const displayName = computed(() => profile.value.name)
   font-size: 13px;
   margin-bottom: 10px;
 }
-.heatmap {
+.profile__heatmap-body {
+  margin-top: 12px;
+  min-height: 170px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 16px;
   display: flex;
-  gap: 16px;
-  align-items: flex-start;
-}
-.heatmap__months {
-  display: flex;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-.heatmap__grid {
-  display: grid;
-  grid-template-columns: repeat(84, 12px);
-  grid-auto-rows: 12px;
-  gap: 4px;
-}
-.heatmap__cell {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  background: #f3f4f6;
-}
-.heatmap__cell--lvl-1 {
-  background: #dbeafe;
-}
-.heatmap__cell--lvl-2 {
-  background: #93c5fd;
-}
-.heatmap__cell--lvl-3 {
-  background: #3b82f6;
-}
-.heatmap__cell--lvl-4 {
-  background: #1e40af;
+  justify-content: center;
+  align-items: center;
+  background: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
-.heatmap__legend {
+.profile__analytics-status {
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  color: rgba(15, 23, 42, 0.76);
+  font-size: 13px;
+  text-align: center;
+}
+
+.profile__analytics-empty {
+  color: rgba(15, 23, 42, 0.6);
+  font-size: 13px;
+  text-align: center;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.chip {
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  padding: 4px 10px;
+  font-size: 12px;
+  color: rgba(15, 23, 42, 0.7);
+}
+
+.profile__analytics-row {
+  margin-top: 20px;
+  display: grid;
+  gap: 20px;
+}
+.profile__analytics-row--triple {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+.profile__module {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  padding: 18px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 12px;
+  gap: 12px;
 }
-.legend__swatches {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-.swatch {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  background: #f3f4f6;
-}
-.swatch--lvl-1 {
-  background: #dbeafe;
-}
-.swatch--lvl-2 {
-  background: #93c5fd;
-}
-.swatch--lvl-3 {
-  background: #3b82f6;
-}
-.swatch--lvl-4 {
-  background: #1e40af;
+.profile__module h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
 
-/* Responsive layout */
 @media (min-width: 880px) {
   .profile__top {
     flex-direction: row;
@@ -438,9 +576,6 @@ const displayName = computed(() => profile.value.name)
   }
   .profile__right {
     flex: 1;
-  }
-  .heatmap__grid {
-    grid-template-columns: repeat(84, 12px);
   }
 }
 

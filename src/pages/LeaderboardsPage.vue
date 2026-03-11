@@ -1,7 +1,19 @@
 <script setup>
-import { reactive, computed, onMounted } from 'vue'
+import { reactive, computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import LeaderboardService from '@/services/LeaderboardService'
 
+const router = useRouter()
+const timeframeOptions = [
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'monthly', label: 'Monthly' },
+]
+const sortOptions = [
+  { value: 'most_active', label: 'Most active' },
+  { value: 'most_profitable', label: 'Most profitable' },
+]
+const sortDropdownOpen = ref(false)
+const sortDropdownRef = ref(null)
 const state = reactive({
   filters: {
     sort: 'most_active',
@@ -20,6 +32,10 @@ const state = reactive({
 })
 
 const isEmpty = computed(() => !state.rows || state.rows.length === 0)
+const currentSortLabel = computed(() => {
+  const match = sortOptions.find((option) => option.value === state.filters.sort)
+  return match ? match.label : sortOptions[0].label
+})
 
 async function load() {
   state.isLoading = true
@@ -43,11 +59,14 @@ async function load() {
   }
 }
 
-function applySearch(term) {
-  state.filters.search = term
-  state.pagination.page = 1
-  void load()
-}
+watch(
+  () => state.filters.search,
+  (value, oldValue) => {
+    if (value === oldValue) return
+    state.pagination.page = 1
+    void load()
+  },
+)
 
 function goToPage(p) {
   if (p < 1 || p > state.pagination.lastPage) return
@@ -75,9 +94,48 @@ function pairsLine(pairsVisited) {
   return list.join(' ')
 }
 
+function updateFilter(field, value) {
+  const changed = state.filters[field] !== value
+  state.filters[field] = value
+  sortDropdownOpen.value = false
+  if (!changed) return
+  state.pagination.page = 1
+  void load()
+}
+
+function setTimeframe(value) {
+  updateFilter('timeframe', value)
+}
+
+function selectSort(value) {
+  updateFilter('sort', value)
+}
+
+function toggleSortDropdown(event) {
+  event.stopPropagation()
+  sortDropdownOpen.value = !sortDropdownOpen.value
+}
+
+function handleGlobalClick(event) {
+  if (!sortDropdownOpen.value) return
+  if (!sortDropdownRef.value?.contains(event.target)) {
+    sortDropdownOpen.value = false
+  }
+}
+
 onMounted(() => {
+  window.addEventListener('click', handleGlobalClick)
   void load()
 })
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleGlobalClick)
+})
+
+function goToTraderProfile(id) {
+  if (!id) return
+  void router.push({ name: 'leaderboard-profile', params: { id } })
+}
 </script>
 
 <template>
@@ -92,36 +150,61 @@ onMounted(() => {
 
         <div class="lbControls">
           <div class="lbControls__left">
-            <button class="lbSelect" type="button">
-              <svg class="lbSelect__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M8 7V5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" stroke-width="2" />
-                <path
-                  d="M6 7h12v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7z"
-                  stroke-width="2"
-                  stroke-linejoin="round"
-                />
-              </svg>
-              <span class="lbSelect__text">Most active</span>
-              <svg class="lbSelect__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M6 9l6 6 6-6" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
+            <div class="lbControls__filters">
+              <div class="lbFilterGroup">
+                <span class="lbFilterGroup__label">Timeframe</span>
+                <div class="lbFilterGroup__options">
+                  <button
+                    v-for="option in timeframeOptions"
+                    :key="option.value"
+                    type="button"
+                    class="lbFilterBtn"
+                    :class="{ 'lbFilterBtn--active': state.filters.timeframe === option.value }"
+                    @click="setTimeframe(option.value)"
+                    :aria-pressed="state.filters.timeframe === option.value"
+                  >
+                    {{ option.label }}
+                  </button>
+                </div>
+              </div>
 
-            <button class="lbSelect" type="button">
-              <svg class="lbSelect__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M7 3v3M17 3v3" stroke-width="2" stroke-linecap="round" />
-                <path d="M4 8h16" stroke-width="2" stroke-linecap="round" />
-                <path
-                  d="M6 6h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"
-                  stroke-width="2"
-                  stroke-linejoin="round"
-                />
-              </svg>
-              <span class="lbSelect__text">Weekly</span>
-              <svg class="lbSelect__chev" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <path d="M6 9l6 6 6-6" stroke-width="2" stroke-linecap="round" />
-              </svg>
-            </button>
+              <div class="lbFilterGroup">
+                <span class="lbFilterGroup__label">Sort</span>
+                <div class="lbFilterGroup__options" ref="sortDropdownRef">
+                  <button
+                    type="button"
+                    class="lbFilterBtn lbFilterBtn--dropdown"
+                    aria-haspopup="listbox"
+                    :aria-expanded="sortDropdownOpen"
+                    @click.stop="toggleSortDropdown"
+                  >
+                    {{ currentSortLabel }}
+                    <span
+                      class="lbFilterBtn__chev"
+                      :class="{ 'lbFilterBtn__chev--open': sortDropdownOpen }"
+                    >
+                      ▼
+                    </span>
+                  </button>
+
+                  <div v-if="sortDropdownOpen" class="lbFilterDropdown" role="listbox">
+                    <button
+                      v-for="option in sortOptions"
+                      :key="option.value"
+                      type="button"
+                      class="lbFilterDropdown__item"
+                      :class="{
+                        'lbFilterDropdown__item--active': state.filters.sort === option.value,
+                      }"
+                      :aria-current="state.filters.sort === option.value ? true : undefined"
+                      @click.stop="selectSort(option.value)"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
 
             <label class="lbSearch">
               <svg class="lbSearch__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -133,7 +216,6 @@ onMounted(() => {
                 class="lbSearch__input"
                 type="search"
                 placeholder="Search for user on leaderboard."
-                @keyup.enter="applySearch(state.filters.search)"
               />
             </label>
           </div>
@@ -274,7 +356,16 @@ onMounted(() => {
               </template>
 
               <template v-else>
-                <tr v-for="(row, idx) in state.rows" :key="row.id" class="lbRow">
+                <tr
+                  v-for="(row, idx) in state.rows"
+                  :key="row.id"
+                  class="lbRow"
+                  tabindex="0"
+                  role="button"
+                  :aria-label="`View analytics for ${row.name}`"
+                  @click="goToTraderProfile(row.id)"
+                  @keydown.enter.prevent="goToTraderProfile(row.id)"
+                >
                   <td class="c-rank">
                     <span
                       class="rankStar"
@@ -407,36 +498,108 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
 }
-
-.lbSelect {
-  height: 36px;
-  display: inline-flex;
+.lbControls__filters {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 0 12px;
+  gap: 12px;
+}
+.lbFilterGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: rgba(15, 23, 42, 0.6);
+}
+.lbFilterGroup__label {
+  font-weight: 600;
+}
+.lbFilterGroup__options {
+  display: inline-flex;
+  gap: 6px;
+  position: relative;
+}
+.lbFilterBtn {
+  height: 34px;
+  padding: 0 16px;
+  border-radius: 10px;
   border: 1px solid var(--control-border);
-  border-radius: 6px;
   background: var(--control-bg);
   color: rgba(15, 23, 42, 0.72);
   font-size: 13px;
   font-weight: 500;
+  cursor: pointer;
   transition:
     background 160ms ease,
     border-color 160ms ease,
-    transform 160ms ease;
+    color 160ms ease,
+    transform 200ms ease,
+    box-shadow 200ms ease;
 }
-.lbSelect__icon,
-.lbSelect__chev {
-  width: 14px;
-  height: 14px;
-  color: rgba(15, 23, 42, 0.45);
+.lbFilterBtn--active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  box-shadow: 0 12px 36px rgba(31, 131, 218, 0.18);
 }
-.lbSelect:hover {
+.lbFilterBtn:hover {
   border-color: rgba(31, 131, 218, 0.35);
-  background: rgba(246, 248, 251, 0.8);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 30px rgba(31, 131, 218, 0.12);
 }
-.lbSelect:active {
-  transform: translateY(1px);
+.lbFilterBtn:focus-visible {
+  outline: 2px solid rgba(31, 131, 218, 0.5);
+  outline-offset: 2px;
+}
+.lbFilterBtn--dropdown {
+  min-width: 160px;
+  justify-content: space-between;
+}
+.lbFilterBtn__chev {
+  margin-left: 8px;
+  transition: transform 120ms ease;
+  display: inline-flex;
+  align-items: center;
+}
+.lbFilterBtn__chev--open {
+  transform: rotate(180deg);
+}
+.lbFilterDropdown {
+  position: absolute;
+  top: 42px;
+  left: 0;
+  min-width: 180px;
+  background: #fff;
+  border: 1px solid #dfe6ee;
+  border-radius: 10px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  z-index: 10;
+  animation: appear 200ms ease;
+}
+.lbFilterDropdown__item {
+  padding: 10px 18px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  width: 100%;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(15, 23, 42, 0.8);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+.lbFilterDropdown__item:hover {
+  background: rgba(31, 131, 218, 0.08);
+}
+.lbFilterDropdown__item--active {
+  color: var(--primary);
 }
 
 .lbSearch {
@@ -496,6 +659,45 @@ onMounted(() => {
 .lbShare__icon {
   width: 16px;
   height: 16px;
+}
+
+.lbCard {
+  transition:
+    transform 220ms ease,
+    box-shadow 240ms ease;
+}
+.lbCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 30px 60px rgba(15, 23, 42, 0.14);
+}
+.lbRow {
+  transition:
+    background 180ms ease,
+    transform 200ms ease;
+}
+.lbRow:hover {
+  background: rgba(31, 131, 218, 0.05);
+  transform: translateY(-1px);
+}
+.lbShare {
+  transition:
+    transform 180ms ease,
+    box-shadow 200ms ease;
+}
+.lbShare:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 34px rgba(31, 131, 218, 0.3);
+}
+
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .lbPager {
