@@ -14,6 +14,9 @@ const sortOptions = [
 ]
 const sortDropdownOpen = ref(false)
 const sortDropdownRef = ref(null)
+const sharePopupOpen = ref(false)
+const shareFeedback = ref('')
+const ogImageCache = ref('')
 const state = reactive({
   filters: {
     sort: 'most_active',
@@ -31,10 +34,54 @@ const state = reactive({
   error: null,
 })
 
+const currentShareUrl = computed(() => {
+  if (typeof window === 'undefined') return '/leaderboards'
+  const url = new URL(window.location.href)
+  url.pathname = '/leaderboards'
+  url.searchParams.set('sort', state.filters.sort)
+  url.searchParams.set('timeframe', state.filters.timeframe)
+  if (state.filters.search) url.searchParams.set('search', state.filters.search)
+  url.searchParams.set('page', state.pagination.page.toString())
+  return url.toString()
+})
+const shareDescription = computed(
+  () =>
+    `Live leaderboard snapshot for ${currentShareUrl.value.includes('most_profitable') ? 'most profitable' : 'most active'} ${currentTimeframeLabel.value.toLowerCase()} traders`,
+)
+const sharePlatforms = [
+  { id: 'whatsapp', label: 'WhatsApp' },
+  { id: 'facebook', label: 'Facebook' },
+  { id: 'reddit', label: 'Reddit' },
+  { id: 'x', label: 'X' },
+  { id: 'linkedin', label: 'LinkedIn' },
+  { id: 'telegram', label: 'Telegram' },
+  { id: 'discord', label: 'Discord' },
+]
 const isEmpty = computed(() => !state.rows || state.rows.length === 0)
 const currentSortLabel = computed(() => {
   const match = sortOptions.find((option) => option.value === state.filters.sort)
   return match ? match.label : sortOptions[0].label
+})
+const currentTimeframeLabel = computed(() => {
+  const match = timeframeOptions.find((option) => option.value === state.filters.timeframe)
+  return match ? match.label : timeframeOptions[0].label
+})
+const shareHeading = computed(
+  () => `Global Ranking • ${currentSortLabel.value} • ${currentTimeframeLabel.value}`,
+)
+const shareMetaLabel = computed(() => `${currentSortLabel.value} · ${currentTimeframeLabel.value}`)
+const shareRows = computed(() => {
+  if (state.rows.length) return state.rows
+  return [
+    {
+      rank: '-',
+      name: 'Leaderboard empty',
+      hoursOnChart: '—',
+      dailyAverage: '—',
+      pairsVisited: [],
+      countryFlag: '',
+    },
+  ]
 })
 
 async function load() {
@@ -68,6 +115,11 @@ watch(
   },
 )
 
+watch(sharePopupOpen, (open) => {
+  if (typeof document === 'undefined') return
+  document.body.style.overflow = open ? 'hidden' : ''
+})
+
 function goToPage(p) {
   if (p < 1 || p > state.pagination.lastPage) return
   state.pagination.page = p
@@ -80,12 +132,284 @@ function goToLast() {
   void load()
 }
 
-async function onShare() {
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  ctx.beginPath()
+  ctx.moveTo(x + radius, y)
+  ctx.lineTo(x + width - radius, y)
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius)
+  ctx.lineTo(x + width, y + height - radius)
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height)
+  ctx.lineTo(x + radius, y + height)
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius)
+  ctx.lineTo(x, y + radius)
+  ctx.quadraticCurveTo(x, y, x + radius, y)
+  ctx.closePath()
+}
+
+async function buildLeaderboardShareBlob() {
+  if (typeof document === 'undefined') return null
+  const rows = shareRows.value
+  const WIDTH = 1400
+  const paddingX = 60
+  const paddingY = 70
+  const rowHeight = 90
+  const titleY = paddingY + 80
+  const chipsY = titleY + 90
+  const tableY = chipsY + 80
+  const tableBodyHeight = rows.length * rowHeight + 30
+  const requiredHeight = paddingY * 2 + tableY + tableBodyHeight + 80
+  const HEIGHT = Math.max(requiredHeight, 880)
+  const DPI = window.devicePixelRatio || 1
+  const canvas = document.createElement('canvas')
+  canvas.width = WIDTH * DPI
+  canvas.height = HEIGHT * DPI
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.scale(DPI, DPI)
+
+  const cardWidth = WIDTH - paddingX * 2
+  const cardHeight = HEIGHT - paddingY * 2
+
+  const bgGradient = ctx.createLinearGradient(0, 0, WIDTH, HEIGHT)
+  bgGradient.addColorStop(0, '#eef4ff')
+  bgGradient.addColorStop(1, '#fdf5ff')
+  ctx.fillStyle = bgGradient
+  ctx.fillRect(0, 0, WIDTH, HEIGHT)
+
+  ctx.save()
+  drawRoundedRect(ctx, paddingX - 10, paddingY - 10, cardWidth + 20, cardHeight + 20, 32)
+  ctx.fillStyle = '#ffffff'
+  ctx.shadowColor = 'rgba(15, 23, 42, 0.2)'
+  ctx.shadowBlur = 40
+  ctx.shadowOffsetY = 22
+  ctx.fill()
+  ctx.restore()
+
+  ctx.save()
+  drawRoundedRect(ctx, paddingX, paddingY, cardWidth, cardHeight, 26)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.97)'
+  ctx.fill()
+  ctx.lineWidth = 1.2
+  ctx.strokeStyle = 'rgba(31, 131, 218, 0.18)'
+  ctx.stroke()
+  ctx.restore()
+
+  const titleX = paddingX + 40
+  ctx.fillStyle = '#0f172a'
+  ctx.font = '600 42px Poppins, system-ui, sans-serif'
+  ctx.fillText(shareHeading.value, titleX, titleY)
+
+  ctx.font = '500 17px Poppins, system-ui, sans-serif'
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.72)'
+  ctx.fillText(
+    'Matches the live leaderboard content you see on the dashboard.',
+    titleX,
+    titleY + 44,
+  )
+
+  let chipX = titleX
+  const drawChip = (text, accent) => {
+    ctx.font = '600 14px Poppins, system-ui, sans-serif'
+    const textWidth = ctx.measureText(text).width
+    const chipWidth = textWidth + 32
+    const chipHeight = 38
+    ctx.save()
+    drawRoundedRect(ctx, chipX, chipsY, chipWidth, chipHeight, 20)
+    ctx.fillStyle = accent ? 'rgba(31, 131, 218, 0.14)' : 'rgba(15, 23, 42, 0.11)'
+    ctx.fill()
+    ctx.restore()
+    ctx.fillStyle = accent ? '#1f83da' : '#0f172a'
+    ctx.fillText(text, chipX + 16, chipsY + chipHeight / 2 + 6)
+    chipX += chipWidth + 16
+  }
+  drawChip(currentTimeframeLabel.value, true)
+  drawChip(currentSortLabel.value, false)
+
+  const tableX = paddingX + 40
+  const columns = [
+    { label: 'Rank', width: 100 },
+    { label: 'Name', width: 320 },
+    { label: 'Hours on chart', width: 200 },
+    { label: 'Daily average', width: 200 },
+    { label: 'Pairs visited', width: 280 },
+    { label: 'Flag', width: 60 },
+  ]
+  const columnPositions = []
+  let cursor = tableX
+  columns.forEach((column) => {
+    columnPositions.push(cursor)
+    cursor += column.width
+  })
+  const tableWidth = cursor - tableX
+
+  ctx.font = '600 15px Poppins, system-ui, sans-serif'
+  ctx.fillStyle = '#475467'
+  columnPositions.forEach((colX, index) => {
+    ctx.fillText(columns[index].label.toUpperCase(), colX + 10, tableY)
+  })
+  ctx.strokeStyle = 'rgba(31, 131, 218, 0.25)'
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(tableX - 10, tableY + 12)
+  ctx.lineTo(tableX + tableWidth + 10, tableY + 12)
+  ctx.stroke()
+
+  const rowsStartY = tableY + 40
+  rows.forEach((row, index) => {
+    const y = rowsStartY + index * rowHeight
+    ctx.fillStyle = index % 2 === 0 ? 'rgba(239, 244, 255, 0.9)' : 'rgba(255, 255, 255, 0.9)'
+    ctx.fillRect(tableX - 10, y - 14, tableWidth + 20, rowHeight - 12)
+
+    ctx.fillStyle = '#0f172a'
+    ctx.font = '600 28px Poppins, system-ui, sans-serif'
+    ctx.fillText(`${row.rank ?? '-'}`, columnPositions[0] + 12, y + 34)
+
+    ctx.font = '600 22px Poppins, system-ui, sans-serif'
+    ctx.fillText(row.name ?? '—', columnPositions[1] + 10, y + 34, columns[1].width - 20)
+
+    ctx.font = '500 20px Poppins, system-ui, sans-serif'
+    ctx.fillStyle = '#0f172a'
+    ctx.fillText(row.hoursOnChart ?? '0hrs 0mins', columnPositions[2] + 10, y + 34)
+    ctx.fillText(row.dailyAverage ?? '0hrs 0mins', columnPositions[3] + 10, y + 34)
+
+    const pairsText = pairsLine(row.pairsVisited)
+    ctx.font = '500 18px Poppins, system-ui, sans-serif'
+    ctx.fillStyle = '#16a34a'
+    ctx.fillText(pairsText || '—', columnPositions[4] + 10, y + 34, columns[4].width - 16)
+
+    ctx.fillStyle = '#0f172a'
+    ctx.font = '600 26px Poppins, system-ui, sans-serif'
+    ctx.fillText(row.countryFlag ?? '', columnPositions[5] + 10, y + 34)
+  })
+
+  ctx.font = '500 16px Poppins, sans-serif'
+  ctx.fillStyle = '#475467'
+  ctx.fillText(shareMetaLabel.value, titleX, HEIGHT - paddingY - 18)
+
+  ctx.font = '600 18px Poppins, sans-serif'
+  ctx.fillText('Powered by trolio', WIDTH - paddingX - 220, HEIGHT - paddingY - 18)
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), 'image/png')
+  })
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
+}
+
+function setMetaTag(attrName, attrValue, content) {
+  if (typeof document === 'undefined') return
+  const selector = `${attrName === 'name' ? 'meta[name' : 'meta[property'}="${attrValue}"]`
+  let meta = document.querySelector(selector)
+  if (!meta) {
+    meta = document.createElement('meta')
+    meta.setAttribute(attrName, attrValue)
+    document.head.appendChild(meta)
+  }
+  meta.setAttribute('content', content)
+}
+
+async function ensureOgMetadata() {
+  setMetaTag('property', 'og:title', shareHeading.value)
+  setMetaTag('property', 'og:description', shareDescription.value)
+  setMetaTag('property', 'og:url', currentShareUrl.value)
+  setMetaTag('property', 'og:type', 'website')
+  setMetaTag('name', 'twitter:card', 'summary_large_image')
+  setMetaTag('name', 'twitter:title', shareHeading.value)
+  setMetaTag('name', 'twitter:description', shareDescription.value)
+
+  if (!ogImageCache.value) {
+    const blob = await buildLeaderboardShareBlob()
+    if (blob) {
+      ogImageCache.value = await blobToDataUrl(blob)
+    }
+  }
+  if (ogImageCache.value) {
+    setMetaTag('property', 'og:image', ogImageCache.value)
+    setMetaTag('name', 'twitter:image', ogImageCache.value)
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+async function saveShareImage() {
   try {
-    const payload = await LeaderboardService.getSharePayload({ filters: state.filters })
-    window.open(payload.url, '_blank')
+    const blob = await buildLeaderboardShareBlob()
+    if (!blob) return
+    downloadBlob(blob, 'trolio-leaderboard.png')
+    shareFeedback.value = 'Image saved'
+    setTimeout(() => {
+      shareFeedback.value = ''
+    }, 2200)
   } catch (err) {
     console.error(err)
+    shareFeedback.value = 'Unable to save image'
+  }
+}
+
+function closeSharePopup() {
+  sharePopupOpen.value = false
+}
+
+async function openSharePopup() {
+  sharePopupOpen.value = true
+  shareFeedback.value = ''
+  await ensureOgMetadata()
+}
+
+function getPlatformShareUrl(platform) {
+  const url = encodeURIComponent(currentShareUrl.value)
+  const title = encodeURIComponent(`${shareHeading.value} — ${shareMetaLabel.value}`)
+  switch (platform) {
+    case 'whatsapp':
+      return `https://api.whatsapp.com/send?text=${title}%0A${url}`
+    case 'facebook':
+      return `https://www.facebook.com/sharer/sharer.php?u=${url}`
+    case 'reddit':
+      return `https://www.reddit.com/submit?url=${url}&title=${title}`
+    case 'x':
+      return `https://x.com/intent/tweet?url=${url}&text=${title}`
+    case 'linkedin':
+      return `https://www.linkedin.com/sharing/share-offsite/?url=${url}`
+    case 'telegram':
+      return `https://t.me/share/url?url=${url}&text=${title}`
+    case 'discord':
+      return `https://discord.com/share?url=${url}&text=${title}`
+    default:
+      return currentShareUrl.value
+  }
+}
+
+function handlePlatformShare(platformId) {
+  const shareUrl = getPlatformShareUrl(platformId)
+  window.open(shareUrl, '_blank', 'noopener')
+}
+
+async function copyShareLink() {
+  try {
+    await navigator.clipboard.writeText(currentShareUrl.value)
+    shareFeedback.value = 'Link copied'
+    setTimeout(() => {
+      shareFeedback.value = ''
+    }, 2000)
+  } catch (err) {
+    console.error(err)
+    shareFeedback.value = 'Clipboard unavailable'
   }
 }
 
@@ -221,7 +545,13 @@ function goToTraderProfile(id) {
           </div>
 
           <div class="lbControls__right">
-            <button class="lbShare" type="button" @click="onShare">
+            <button
+              class="lbShare"
+              type="button"
+              @click="openSharePopup"
+              aria-label="Open share options"
+              :aria-expanded="sharePopupOpen"
+            >
               <svg class="lbShare__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                 <path
                   d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"
@@ -259,6 +589,58 @@ function goToTraderProfile(id) {
                 »
               </button>
             </div>
+          </div>
+        </div>
+
+        <div
+          v-if="sharePopupOpen"
+          class="share-popup-overlay"
+          @click.self="closeSharePopup"
+          role="presentation"
+        >
+          <div
+            class="share-popup"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-popup-title"
+          >
+            <button
+              class="share-popup__close"
+              type="button"
+              @click="closeSharePopup"
+              aria-label="Close share dialog"
+            >
+              ×
+            </button>
+            <h3 id="share-popup-title">Share leaderboard</h3>
+            <p class="share-popup__intro">
+              Share the exact leaderboard view you are seeing, including the filters, top names, and
+              timeframe.
+            </p>
+            <div class="share-popup__actions">
+              <button class="share-popup__pill" type="button" @click="copyShareLink">
+                Copy link
+              </button>
+              <button
+                class="share-popup__pill share-popup__pill--ghost"
+                type="button"
+                @click="saveShareImage"
+              >
+                Save image
+              </button>
+            </div>
+            <div class="share-popup__grid">
+              <button
+                v-for="platform in sharePlatforms"
+                :key="platform.id"
+                class="share-popup__platform"
+                type="button"
+                @click="handlePlatformShare(platform.id)"
+              >
+                {{ platform.label }}
+              </button>
+            </div>
+            <div v-if="shareFeedback" class="share-popup__feedback">{{ shareFeedback }}</div>
           </div>
         </div>
 
@@ -644,17 +1026,39 @@ function goToTraderProfile(id) {
   color: #fff;
   font-size: 13px;
   font-weight: 600;
+  position: relative;
+  overflow: hidden;
+  will-change: transform;
+  box-shadow: 0 12px 32px rgba(31, 131, 218, 0.25);
   transition:
     background 160ms ease,
     border-color 160ms ease,
-    transform 160ms ease;
+    transform 160ms ease,
+    box-shadow 200ms ease;
+}
+.lbShare::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.35), transparent 60%);
+  opacity: 0;
+  transition: opacity 220ms ease;
 }
 .lbShare:hover {
   background: var(--primary-hover);
   border-color: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 20px 42px rgba(31, 131, 218, 0.35);
 }
 .lbShare:active {
   transform: translateY(1px);
+}
+.lbShare:hover::after {
+  opacity: 1;
+}
+.lbShare:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.4);
 }
 .lbShare__icon {
   width: 16px;
@@ -678,15 +1082,6 @@ function goToTraderProfile(id) {
 .lbRow:hover {
   background: rgba(31, 131, 218, 0.05);
   transform: translateY(-1px);
-}
-.lbShare {
-  transition:
-    transform 180ms ease,
-    box-shadow 200ms ease;
-}
-.lbShare:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 34px rgba(31, 131, 218, 0.3);
 }
 
 @keyframes appear {
@@ -912,6 +1307,114 @@ function goToTraderProfile(id) {
 }
 
 /* Responsive */
+.share-popup-overlay {
+  position: fixed;
+  inset: 0;
+  backdrop-filter: blur(6px);
+  background: rgba(5, 12, 31, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 99;
+}
+
+.share-popup {
+  width: min(540px, 90vw);
+  padding: 32px;
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
+  position: relative;
+  border: 1px solid rgba(31, 131, 218, 0.1);
+}
+
+.share-popup__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+  color: rgba(15, 23, 42, 0.6);
+}
+
+.share-popup h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.share-popup__intro {
+  margin-top: 6px;
+  margin-bottom: 18px;
+  font-size: 14px;
+  color: rgba(15, 23, 42, 0.7);
+}
+
+.share-popup__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.share-popup__pill {
+  padding: 10px 20px;
+  border-radius: 12px;
+  border: 1px solid #1f83da;
+  background: #1f83da;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 220ms ease;
+}
+
+.share-popup__pill--ghost {
+  border-color: rgba(15, 23, 42, 0.2);
+  background: #fff;
+  color: #0f172a;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.share-popup__pill:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(31, 131, 218, 0.2);
+}
+
+.share-popup__grid {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.share-popup__platform {
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 10px;
+  padding: 10px;
+  background: #f7f9fd;
+  cursor: pointer;
+  font-weight: 600;
+  color: #0f172a;
+  transition:
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.share-popup__platform:hover {
+  background: #e3edff;
+  transform: translateY(-1px);
+}
+
+.share-popup__feedback {
+  margin-top: 14px;
+  font-size: 13px;
+  color: #16a34a;
+}
+
 @media (max-width: 980px) {
   .lbControls {
     flex-direction: column;
@@ -930,3 +1433,4 @@ function goToTraderProfile(id) {
   }
 }
 </style>
+see

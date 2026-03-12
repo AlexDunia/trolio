@@ -201,6 +201,7 @@ onMounted(() => {
           <li><a href="#how-to-use">How to use</a></li>
           <li><a href="#social-proof">Social Proof</a></li>
           <li><a href="#why-trolio">Why Trolio</a></li>
+          <li><a href="#risk-calculator">Risk Calculator</a></li>
         </ul>
 
         <div class="nav-cta">
@@ -604,6 +605,45 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- Risk Calculator -->
+    <section id="risk-calculator" class="risk-calculator">
+      <div class="risk-calculator__inner">
+        <div class="risk-calculator__copy">
+          <p class="risk-calculator__label">Risk calculator</p>
+          <h2>Dial in trade size without second-guessing</h2>
+          <p>
+            Match every position to your edge by plugging in capital, risk limits, and reward goals.
+            The calculator keeps sizing honest while you focus on execution.
+          </p>
+          <div class="risk-calculator__actions">
+            <a href="/risk-calculator" class="btn btn-primary">Launch calculator</a>
+            <a href="#faq" class="btn btn-ghost">Risk management tips</a>
+          </div>
+        </div>
+
+        <div class="risk-calculator__panel">
+          <div class="risk-calculator__panel-card">
+            <div class="risk-calculator__panel-row">
+              <span>Capital</span>
+              <strong>$125,000</strong>
+            </div>
+            <div class="risk-calculator__panel-row">
+              <span>Risk per trade</span>
+              <strong>2.15%</strong>
+            </div>
+            <div class="risk-calculator__panel-row">
+              <span>Reward target</span>
+              <strong>4.5x</strong>
+            </div>
+            <div class="risk-calculator__panel-footer">
+              <span>Suggested position size</span>
+              <strong>$3,375</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- Reviews Section (UPDATED: light bg + calm text) -->
     <section class="reviews" id="reviews">
       <div class="reviews__container">
@@ -930,6 +970,103 @@ nav.scrolled {
 
 .btn-ghost:hover {
   color: var(--primary-blue);
+}
+
+.risk-calculator {
+  margin: 3.5rem auto 2rem;
+  padding: 3rem 0;
+  background: #f6f8ff;
+  border-radius: 32px;
+}
+
+.risk-calculator__inner {
+  width: min(88vw, 1280px);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 2.5rem;
+  align-items: center;
+}
+
+.risk-calculator__label {
+  text-transform: uppercase;
+  letter-spacing: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--primary-blue);
+  margin-bottom: 0.75rem;
+}
+
+.risk-calculator__copy h2 {
+  font-size: 2.4rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  color: var(--ink-900);
+}
+
+.risk-calculator__copy > p {
+  color: var(--gray-700);
+  margin-bottom: 1.5rem;
+  max-width: 42ch;
+}
+
+.risk-calculator__actions {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.risk-calculator__panel {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.risk-calculator__panel-card {
+  width: 100%;
+  min-height: 230px;
+  background: #fff;
+  border-radius: 24px;
+  padding: 2rem;
+  box-shadow: 0 25px 50px rgba(9, 15, 40, 0.16);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.risk-calculator__panel-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--gray-600);
+}
+
+.risk-calculator__panel-row strong {
+  font-size: 1.15rem;
+  color: var(--dark);
+}
+
+.risk-calculator__panel-footer {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px dashed rgba(11, 18, 34, 0.15);
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .risk-calculator__label {
+    letter-spacing: 0.25rem;
+  }
+
+  .risk-calculator__panel {
+    justify-content: center;
+  }
+
+  .risk-calculator__panel-card {
+    padding: 1.75rem;
+  }
 }
 
 /* Hero */
